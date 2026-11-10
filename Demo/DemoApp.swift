@@ -31,6 +31,46 @@ let pairs: [Pair] = [
          to: .symbol("star.fill", size: 72, color: .orange)),
 ]
 
+/// The two patterns the apps use: a final action button and an icon switch,
+/// both stock controls with a morphing label.
+struct ControlsRow: View {
+    enum Saving { case idle, saving, saved }
+    @State private var saving = Saving.idle
+    @State private var bookmarked = false
+
+    private var saveLabel: MorphContent {
+        let style = MorphStyle.system(size: 17, weight: .semibold, color: .white)
+        return switch saving {
+        case .idle: .text("Save", style: style)
+        case .saving: .text("Saving", style: style)
+        case .saved: .symbol("checkmark", size: 17, weight: .semibold, color: .white, accessibilityLabel: "Saved")
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 20) {
+            Button {
+                guard saving == .idle else { saving = .idle; return }
+                saving = .saving
+                Task {
+                    try? await Task.sleep(for: .seconds(1))
+                    saving = .saved
+                }
+            } label: {
+                AnimatedMorph(saveLabel).frame(minWidth: 70)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            Button { bookmarked.toggle() } label: {
+                AnimatedMorph(.symbol(bookmarked ? "bookmark.fill" : "bookmark", size: 22, color: .accentColor,
+                                      accessibilityLabel: bookmarked ? "Bookmarked" : "Bookmark"))
+            }
+            .buttonStyle(.borderless)
+        }
+    }
+}
+
 struct DemoView: View {
     @State private var selected = pairs[0].id
     @State private var progress = 0.0
@@ -56,6 +96,9 @@ struct DemoView: View {
                 .keyboardShortcut(.space, modifiers: [])
                 Slider(value: $progress, in: 0...1)
             }
+
+            Divider()
+            ControlsRow()
         }
         .padding(32)
         .frame(minWidth: 640)

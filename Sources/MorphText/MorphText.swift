@@ -80,14 +80,22 @@ public struct MorphBetween: View, Animatable {
     /// How far from `from` to `to`.
     public var progress: Double
 
+    /// Where `AnimatedMorph` reads the progress drawn mid-animation.
+    private let shown: ShownProgress?
+
     @State private var store = TextMorphStore()
     @Environment(\.displayScale) private var displayScale
 
     /// The morph from `from` to `to`, at `progress`.
     public init(from: MorphContent, to: MorphContent, progress: Double) {
+        self.init(from: from, to: to, progress: progress, shown: nil)
+    }
+
+    init(from: MorphContent, to: MorphContent, progress: Double, shown: ShownProgress?) {
         self.from = from
         self.to = to
         self.progress = progress
+        self.shown = shown
     }
 
     nonisolated public var animatableData: Double {
@@ -101,6 +109,8 @@ public struct MorphBetween: View, Animatable {
         // is that end.
         let raw = progress.isFinite ? progress : 0
         let t = raw < -0.25 ? 0 : raw > 1.25 ? 1 : raw
+        // A view builder takes declarations, not statements.
+        let _ = shown.map { $0.value = t }
         let size = morph.size(at: t)
         let colors = (from.color, to.color)
         let label = t < 0.5 ? from.label : to.label

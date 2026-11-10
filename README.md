@@ -8,9 +8,9 @@ plain text (or the symbol itself) at either end.
 The Swift sibling of [morphtext](https://github.com/drei-gg/morphtext) for
 Flutter. SwiftUI, iOS 17 and macOS 14, Swift Package Manager.
 
-> Early: text into text (any weight, size, spacing or font) and text into
-> and out of SF Symbols work, with tests on macOS and iOS. An implicit
-> `AnimatedMorphText` and the outline-to-text handoff are next.
+> Early: text into text (any weight, size, spacing or font), text into and
+> out of SF Symbols, and an implicit `AnimatedMorph` work, with tests on macOS
+> and iOS. Not published: it lives in the Seven and Done apps first.
 
 ```swift
 import MorphText
@@ -31,6 +31,31 @@ struct Title: View {
 `progress` animates: change it inside `withAnimation` (a spring's overshoot
 carries the outlines a little past either end), or drive it from a gesture,
 a scroll position or a transition. At exactly 0 and 1 it is plain text.
+
+## Implicit morphs
+
+`AnimatedMorph` morphs to each new content you give it, as SwiftUI's
+`.animation` does. It fits inside stock controls, so a button stays a
+system button and only its label moves:
+
+```swift
+Button(action: save) {
+    AnimatedMorph(saved ? .symbol("checkmark", size: 17, weight: .semibold)
+                        : .text("Save", style: .system(size: 17, weight: .semibold)))
+}
+.buttonStyle(.borderedProminent)
+
+Button { bookmarked.toggle() } label: {
+    AnimatedMorph(.symbol(bookmarked ? "bookmark.fill" : "bookmark", size: 22))
+}
+```
+
+Turning back before it lands reverses from where it is, keeping the
+spring's speed. A third content arriving mid-flight replaces whichever end
+is further from what's shown. Text into text settles without a bounce (a
+bounce reads as a wobble on letters); anything with a symbol gets a little
+snap. Pass `animation:` for your own, and `onEnd:` to hear when it lands.
+With Reduce Motion on, changes apply at once.
 
 ## SF Symbols
 
@@ -99,7 +124,8 @@ draw the same shapes. The tests run on macOS and the iOS simulator.
 ## Demo
 
 On a Mac, `swift run MorphTextDemo`: six morphs (weight, words, fonts, size,
-a word into a symbol, a symbol into a symbol), a spring and a scrubber.
+a word into a symbol, a symbol into a symbol), a spring and a scrubber, and
+below them a Save button and a bookmark switch built on `AnimatedMorph`.
 `MorphText.swift` has Xcode previews too.
 
 ## License and attribution
