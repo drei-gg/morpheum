@@ -21,7 +21,9 @@ import SwiftUI
 ///           progress: on ? 1 : 0)
 ///     .animation(.spring, value: on)
 /// ```
-public struct MorphText: View, Animatable {
+///
+/// For SF Symbols at either end, see `MorphBetween`.
+public struct MorphText: View {
     /// The text at progress 0.
     public var text: String
     /// The text at progress 1.
@@ -32,8 +34,6 @@ public struct MorphText: View, Animatable {
     public var to: MorphStyle
     /// How far from `from` to `to`.
     public var progress: Double
-
-    @State private var store = TextMorphStore()
 
     /// The morph from `text` in `from` to `toText` (the same text when nil)
     /// in `to`, at `progress`.
@@ -51,51 +51,96 @@ public struct MorphText: View, Animatable {
         self.progress = progress
     }
 
+    // Not Animatable itself: the MorphBetween inside animates `progress`.
+    public var body: some View {
+        MorphBetween(from: .text(text, style: from), to: .text(toText, style: to), progress: progress)
+    }
+}
+
+/// `from` at progress 0 morphing into `to` at progress 1, outline into
+/// outline: text into text (as `MorphText`), a word into an SF Symbol, a
+/// symbol into a word, or one symbol into another.
+///
+/// When one end is a single symbol and the other a word, the whole word and
+/// the symbol morph as one shape, each letter from its place in the word.
+///
+/// At exactly 0 and 1 it draws `from` or `to` as they are: text as CoreText
+/// draws it, a symbol as `Image(systemName:)` does.
+///
+/// ```swift
+/// MorphBetween(from: .text("Send", style: .system(size: 28, weight: .semibold)),
+///              to: .symbol("paperplane.fill", size: 28, weight: .semibold),
+///              progress: sent ? 1 : 0)
+/// ```
+public struct MorphBetween: View, Animatable {
+    /// What shows at progress 0.
+    public var from: MorphContent
+    /// What shows at progress 1.
+    public var to: MorphContent
+    /// How far from `from` to `to`.
+    public var progress: Double
+
+    @State private var store = TextMorphStore()
+    @Environment(\.displayScale) private var displayScale
+
+    /// The morph from `from` to `to`, at `progress`.
+    public init(from: MorphContent, to: MorphContent, progress: Double) {
+        self.from = from
+        self.to = to
+        self.progress = progress
+    }
+
     nonisolated public var animatableData: Double {
         get { progress }
         set { progress = newValue }
     }
 
     public var body: some View {
-        let morph = store.morph(text, from.geometry, toText, to.geometry)
+        let morph = store.morph(from.kind, to.kind, scale: displayScale)
         // A spring may carry it a quarter past either end; anything further
         // is that end.
         let raw = progress.isFinite ? progress : 0
         let t = raw < -0.25 ? 0 : raw > 1.25 ? 1 : raw
         let size = morph.size(at: t)
         let colors = (from.color, to.color)
-        Canvas(rendersAsynchronously: false) { context, box in
-            drawMorph(morph, at: t, colors: colors, in: &context, size: box)
+        let label = t < 0.5 ? from.label : to.label
+        Group {
+            // A symbol at rest is SwiftUI's own, pixel for pixel.
+            if (t == 0 || t == 1), case .symbol(let name, let symbolSize, let weight) = (t == 0 ? from : to).kind {
+                Image(systemName: name)
+                    .font(.system(size: symbolSize, weight: weight))
+                    .foregroundStyle(t == 0 ? from.color : to.color)
+            } else {
+                Canvas(rendersAsynchronously: false) { context, box in
+                    drawMorph(morph, at: t, colors: colors, in: &context, size: box)
+                }
+            }
         }
         .frame(width: size.width, height: size.height)
         .accessibilityElement()
-        .accessibilityLabel(t < 0.5 ? text : toText)
+        .accessibilityLabel(label)
         .accessibilityAddTraits(.isStaticText)
+        .accessibilityHidden(label.isEmpty)
     }
 }
 
-/// Keeps one view's morph while its text and fonts stay the same.
+/// Keeps one view's morph while its ends stay the same (colours aside).
 @MainActor
 final class TextMorphStore {
     private var morph: TextMorph?
-    private var key: (String, MorphStyle.Geometry, String, MorphStyle.Geometry)?
+    private var key: (MorphContent.Kind, MorphContent.Kind, CGFloat)?
 
-    func morph(
-        _ text: String,
-        _ from: MorphStyle.Geometry,
-        _ toText: String,
-        _ to: MorphStyle.Geometry
-    ) -> TextMorph {
-        if let morph, let key, key == (text, from, toText, to) { return morph }
-        let morph = TextMorph(WordLayout(text, style: from), WordLayout(toText, style: to))
+    func morph(_ from: MorphContent.Kind, _ to: MorphContent.Kind, scale: CGFloat) -> TextMorph {
+        if let morph, let key, key == (from, to, scale) { return morph }
+        let morph = TextMorph(from: from, to: to, scale: scale)
         self.morph = morph
-        key = (text, from, toText, to)
+        key = (from, to, scale)
         return morph
     }
 }
 
-/// Draws `morph` at `t` into `context`: the nearer end as plain text at
-/// either end, the morphed outlines between.
+/// Draws `morph` at `t` into `context`: the nearer end as it is at either
+/// end, the morphed outlines between.
 @MainActor
 func drawMorph(
     _ morph: TextMorph,
@@ -113,14 +158,21 @@ func drawMorph(
         blue: resolvedA.blue + (resolvedB.blue - resolvedA.blue) * within,
         opacity: resolvedA.opacity + (resolvedB.opacity - resolvedA.opacity) * within
     )
-    // Plain text only exactly at an end: a spring passes through and back
-    // past either end, and the outlines follow it there (up to a quarter),
-    // rather than flicking to text and back.
+    // As it is only exactly at an end: a spring passes through and back past
+    // either end, and the outlines follow it there (up to a quarter), rather
+    // than flicking to text and back.
     if t == 0 || t == 1 {
         let end = t == 1 ? morph.b : morph.a
         let origin = centred(end.size, in: size)
-        context.withCGContext { cg in
-            drawLine(end.line, at: CGPoint(x: origin.x, y: origin.y + end.baseline), color: color.cgColor, in: cg)
+        if let line = end.line {
+            context.withCGContext { cg in
+                drawLine(line, at: CGPoint(x: origin.x, y: origin.y + end.baseline), color: color.cgColor, in: cg)
+            }
+        } else if let symbol = end.symbol {
+            var placed = CGAffineTransform(translationX: origin.x, y: origin.y)
+            if let path = symbol.copy(using: &placed) {
+                context.fill(Path(path), with: .color(Color(color)))
+            }
         }
         return
     }
@@ -160,5 +212,16 @@ func drawLine(_ line: CTLine, at pen: CGPoint, color: CGColor, in cg: CGContext)
             withAnimation(.spring(duration: 0.6)) { on.toggle() }
         }
     }
+    .padding(40)
+}
+
+#Preview("Send into a paper plane") {
+    @Previewable @State var sent = false
+    MorphBetween(
+        from: .text("Send", style: .system(size: 40, weight: .semibold, color: .blue)),
+        to: .symbol("paperplane.fill", size: 40, weight: .semibold, color: .blue),
+        progress: sent ? 1 : 0
+    )
+    .onTapGesture { withAnimation(.spring(duration: 0.6)) { sent.toggle() } }
     .padding(40)
 }

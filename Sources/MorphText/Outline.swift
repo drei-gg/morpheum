@@ -168,12 +168,31 @@ public struct MorphOutlinePlan: Sendable {
     }
 }
 
-/// Adds one closed polygon, interleaved x, y, to `path`.
-func addPolygon(_ points: [Double], to path: CGMutablePath, transform: CGAffineTransform) {
+/// Adds one closed polygon, interleaved x, y, to `path`, mapped by
+/// `transform`.
+///
+/// A contour shrinking to a point (one with no partner) piles its dozens of
+/// points into a pixel, and CoreGraphics streaks such a polygon across the
+/// rest of its scanline. So, with a `spacing`, points closer than that (after
+/// `transform`) to the last one kept are dropped, and a contour left with
+/// fewer than three draws nothing. `TextMorph` draws in points with 0.1: a
+/// third of a pixel on a 3x screen, where a letter's own points sit most of a
+/// point apart.
+func addPolygon(_ points: [Double], to path: CGMutablePath, transform: CGAffineTransform, spacing: CGFloat = 0) {
     guard points.count >= 4 else { return }
-    path.move(to: CGPoint(x: points[0], y: points[1]).applying(transform))
-    for i in stride(from: 2, to: points.count, by: 2) {
-        path.addLine(to: CGPoint(x: points[i], y: points[i + 1]).applying(transform))
+    let minimum = spacing
+    var kept: [CGPoint] = []
+    kept.reserveCapacity(points.count / 2)
+    for i in stride(from: 0, to: points.count, by: 2) {
+        let point = CGPoint(x: points[i], y: points[i + 1]).applying(transform)
+        if minimum > 0, let last = kept.last, abs(point.x - last.x) < minimum, abs(point.y - last.y) < minimum { continue }
+        kept.append(point)
     }
+    if minimum > 0, let first = kept.first, let last = kept.last, kept.count > 1,
+       abs(first.x - last.x) < minimum, abs(first.y - last.y) < minimum {
+        kept.removeLast()
+    }
+    guard kept.count >= (minimum > 0 ? 3 : 2) else { return }
+    path.addLines(between: kept)
     path.closeSubpath()
 }

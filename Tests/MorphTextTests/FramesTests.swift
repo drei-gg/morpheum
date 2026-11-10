@@ -63,27 +63,27 @@ import UniformTypeIdentifiers
         let (a, b) = (ink(text), ink(outline))
         #expect(abs(a - b) < a / 20, "text \(a) px, outline \(b) px")
     }
+}
 
-    /// With MORPHTEXT_FRAMES set to a folder, writes the frames there side by
-    /// side as a PNG, to look at.
-    private func saveStrip(_ frames: [CGImage], name: String) throws {
-        guard let folder = ProcessInfo.processInfo.environment["MORPHTEXT_FRAMES"] else { return }
-        let width = frames.map(\.width).max()!
-        let height = frames.map(\.height).reduce(0, +)
-        let context = CGContext(
-            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        )!
-        context.setFillColor(CGColor(gray: 1, alpha: 1))
-        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
-        var y = height
-        for frame in frames {
-            y -= frame.height
-            context.draw(frame, in: CGRect(x: (width - frame.width) / 2, y: y, width: frame.width, height: frame.height))
-        }
-        let url = URL(fileURLWithPath: folder).appendingPathComponent("\(name).png")
-        let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
-        CGImageDestinationAddImage(destination, context.makeImage()!, nil)
-        #expect(CGImageDestinationFinalize(destination))
+/// With MORPHTEXT_FRAMES set to a folder, writes the frames there side by
+/// side as a PNG, to look at.
+func saveStrip(_ frames: [CGImage], name: String) throws {
+    guard let folder = ProcessInfo.processInfo.environment["MORPHTEXT_FRAMES"] else { return }
+    let width = frames.map(\.width).max()!
+    let height = frames.map(\.height).reduce(0, +)
+    let context = CGContext(
+        data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    )!
+    context.setFillColor(CGColor(gray: 1, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    var y = height
+    for frame in frames {
+        y -= frame.height
+        context.draw(frame, in: CGRect(x: (width - frame.width) / 2, y: y, width: frame.width, height: frame.height))
     }
+    let url = URL(fileURLWithPath: folder).appendingPathComponent("\(name).png")
+    let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
+    CGImageDestinationAddImage(destination, context.makeImage()!, nil)
+    #expect(CGImageDestinationFinalize(destination))
 }

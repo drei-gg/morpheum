@@ -2,13 +2,19 @@ import CoreText
 import SwiftUI
 
 /// The morph from one line of text to another, letter by letter, outline
-/// into outline: the engine behind `MorphText`, public for drawing it
-/// anywhere (a `CAShapeLayer`, a `CGContext`, a custom renderer).
+/// into outline, or between text and an SF Symbol: the engine behind
+/// `MorphText` and `MorphBetween`, public for drawing it anywhere (a
+/// `CAShapeLayer`, a `CGContext`, a custom renderer).
 ///
 /// CoreText lays out both ends (kerning, fallback fonts, baseline and all)
 /// and gives each letter's outline. Letters are paired by `alignLetters`;
 /// each pair's contours are planned once, the first time a frame between
 /// the ends is asked for, and kept.
+///
+/// With a symbol at one end and a word at the other, the whole word and the
+/// symbol morph as one shape instead, each letter's outline from its place
+/// in the word. (One shape, not a copy of the symbol per letter: copies
+/// drifting apart would cover each other's holes.)
 ///
 /// Coordinates are points in a box of `size(at:)`, y down, each end centred
 /// in it as it grows or shrinks.
@@ -25,16 +31,34 @@ public final class TextMorph {
 
     let a: WordLayout
     let b: WordLayout
+    /// Whether a single glyph at one end (a symbol) gathers every letter of
+    /// the other.
+    let converge: Bool
     private var _pairs: [Pair]?
+    private var _whole: MorphOutlinePlan??
 
     /// The morph from `text` in `from` to `toText` in `to`.
     public convenience init(_ text: String, from: MorphStyle, to toText: String, in to: MorphStyle) {
         self.init(WordLayout(text, style: from.geometry), WordLayout(toText, style: to.geometry))
     }
 
-    init(_ a: WordLayout, _ b: WordLayout) {
+    /// The morph from `from` to `to`, text or symbols, for a screen of
+    /// `displayScale` pixels per point (where a symbol's pixels fall).
+    @MainActor
+    public convenience init(from: MorphContent, to: MorphContent, displayScale: CGFloat = 2) {
+        self.init(from: from.kind, to: to.kind, scale: displayScale)
+    }
+
+    @MainActor
+    convenience init(from: MorphContent.Kind, to: MorphContent.Kind, scale: CGFloat) {
+        let symbol = { (kind: MorphContent.Kind) in if case .symbol = kind { true } else { false } }
+        self.init(from.layout(scale: scale), to.layout(scale: scale), converge: symbol(from) || symbol(to))
+    }
+
+    init(_ a: WordLayout, _ b: WordLayout, converge: Bool = false) {
         self.a = a
         self.b = b
+        self.converge = converge
     }
 
     /// The start's text.
@@ -54,7 +78,9 @@ public final class TextMorph {
     /// Each letter pair, planned on first use.
     var pairs: [Pair] {
         if let _pairs { return _pairs }
-        let pairs = alignLetters(a.letters.map(\.character), b.letters.map(\.character)).map { i, j in
+        let characters = (a.letters.map(\.character), b.letters.map(\.character))
+        let aligned = converge ? convergeLetters(characters.0, characters.1) : alignLetters(characters.0, characters.1)
+        let pairs = aligned.map { i, j in
             let outlineA = i.flatMap { a.letters[$0].outline }
             let outlineB = j.flatMap { b.letters[$0].outline }
             // Alone, a letter morphs into itself, and the box shrinks or grows it.
@@ -70,8 +96,35 @@ public final class TextMorph {
         return pairs
     }
 
+    /// When a word gathers into a symbol (or a symbol opens into a word): the
+    /// whole of each end as one outline, each letter where its line puts it,
+    /// in units of the larger em from the end's top left. Nil otherwise, or
+    /// when either end has nothing to draw.
+    var whole: MorphOutlinePlan? {
+        if let _whole { return _whole }
+        var plan: MorphOutlinePlan?
+        if converge, (a.letters.count == 1) != (b.letters.count == 1) {
+            let unit = max(a.em, b.em)
+            func shape(_ layout: WordLayout) -> MorphOutline? {
+                let parts = layout.letters.compactMap { letter -> MorphOutline? in
+                    guard let pen = letter.pen, let outline = letter.outline else { return nil }
+                    return outline.placed(at: CGPoint(x: pen / unit, y: layout.baseline / unit), scale: letter.em / unit)
+                }
+                return (try? MorphOutline.combine(parts)) ?? nil
+            }
+            if let from = shape(a), let to = shape(b) {
+                plan = try? MorphOutlinePlan(from: from, to: to)
+            }
+        }
+        _whole = .some(plan)
+        return plan
+    }
+
     /// Plans every pair now rather than on the first frame between the ends.
-    public func prepare() { _ = pairs }
+    public func prepare() {
+        _ = pairs
+        _ = whole
+    }
 
     /// Where each end's line sits in a box of `size`: its top left.
     func origins(in size: CGSize) -> (a: CGPoint, b: CGPoint) {
@@ -87,6 +140,19 @@ public final class TextMorph {
     public func path(at t: Double, in size: CGSize) -> CGPath {
         let path = CGMutablePath()
         let (originA, originB) = origins(in: size)
+        if let whole {
+            // One shape, carried from one end's place in the box to the other's.
+            let unit = max(a.em, b.em)
+            var output = whole.allocateOutput()
+            whole.interpolate(t, into: &output)
+            let transform = CGAffineTransform(
+                a: unit, b: 0, c: 0, d: unit,
+                tx: originA.x + (originB.x - originA.x) * t,
+                ty: originA.y + (originB.y - originA.y) * t
+            )
+            for points in output { addPolygon(points, to: path, transform: transform, spacing: 0.1) }
+            return path
+        }
         let pairs = self.pairs
         for k in pairs.indices {
             let pair = pairs[k]
@@ -97,7 +163,7 @@ public final class TextMorph {
                 a: placement.em, b: 0, c: 0, d: placement.em,
                 tx: placement.pen.x, ty: placement.pen.y
             )
-            for points in output { addPolygon(points, to: path, transform: transform) }
+            for points in output { addPolygon(points, to: path, transform: transform, spacing: 0.1) }
         }
         return path
     }
@@ -106,6 +172,7 @@ public final class TextMorph {
     /// at `t`: the nearer end's letter, carried between the two places.
     /// Spaces are left out.
     func lettersAsText(at t: Double, in size: CGSize) -> [(String, CTFont, CGPoint)] {
+        if whole != nil { return [] }
         let (originA, originB) = origins(in: size)
         let pairs = self.pairs
         return pairs.indices.compactMap { k in
@@ -114,8 +181,8 @@ public final class TextMorph {
             let nearer = t < 0.5 ? pair.from.map { (a, $0) } : pair.to.map { (b, $0) }
             guard let (layout, index) = nearer else { return nil }
             let character = layout.letters[index].character
-            if character.isWhitespace { return nil }
-            return (String(character), layout.style.font, placement.pen)
+            guard !character.isWhitespace, let style = layout.style else { return nil }
+            return (String(character), style.font, placement.pen)
         }
     }
 

@@ -114,7 +114,7 @@ import Testing
 
     /// The line's glyph ink, from its left edge and baseline, y down.
     private func lineInk(_ layout: WordLayout) throws -> CGRect {
-        let ink = CTLineGetImageBounds(layout.line, nil)
+        let ink = CTLineGetImageBounds(try #require(layout.line), nil)
         return CGRect(x: ink.minX, y: layout.baseline - ink.maxY, width: ink.width, height: ink.height)
     }
 }

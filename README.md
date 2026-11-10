@@ -1,15 +1,16 @@
 # MorphText for Swift
 
 Text that morphs letter by letter, outline into outline. A light word turns
-heavy, a serif word turns rounded, a small title grows and loosens, and one
-word becomes another, all as one shape, with plain text at either end.
+heavy, a serif word turns rounded, a small title grows and loosens, one word
+becomes another, and a word flows into an SF Symbol, all as one shape, with
+plain text (or the symbol itself) at either end.
 
 The Swift sibling of [morphtext](https://github.com/drei-gg/morphtext) for
 Flutter. SwiftUI, iOS 17 and macOS 14, Swift Package Manager.
 
-> Early: one end-to-end morph works (text into text, any weight, size,
-> spacing or font), with tests. SF Symbols, an implicit `AnimatedMorphText`
-> and the outline-to-text handoff are next.
+> Early: text into text (any weight, size, spacing or font) and text into
+> and out of SF Symbols work, with tests on macOS and iOS. An implicit
+> `AnimatedMorphText` and the outline-to-text handoff are next.
 
 ```swift
 import MorphText
@@ -30,6 +31,29 @@ struct Title: View {
 `progress` animates: change it inside `withAnimation` (a spring's overshoot
 carries the outlines a little past either end), or drive it from a gesture,
 a scroll position or a transition. At exactly 0 and 1 it is plain text.
+
+## SF Symbols
+
+`MorphBetween` takes text or a symbol at either end:
+
+```swift
+MorphBetween(from: .text("Send", style: .system(size: 28, weight: .semibold)),
+             to: .symbol("paperplane.fill", size: 28, weight: .semibold),
+             progress: sent ? 1 : 0)
+```
+
+A word and a symbol morph as one shape, every letter from its place in the
+word; one symbol morphs into another as a glyph does. At rest a symbol end is
+`Image(systemName:)` itself.
+
+No public API hands over a symbol's outline, so SwiftUI draws the symbol
+into a PDF, which keeps it vector, and the PDF's paths are read back, soft
+masks (the tick cut out of `checkmark.circle.fill`) included. Each symbol is
+read once per size, weight and screen scale. Monochrome only: a multicolour
+or hierarchical symbol's layers become one shape in one colour. SwiftUI
+places a symbol's pixels by up to 3/4 of a point differently depending on
+where it sits, so the first frame of a morph can land that far from the
+resting `Image`.
 
 ## Styles
 
@@ -70,12 +94,13 @@ grows from, or shrinks into, the place of its neighbour.
 
 The geometry is a port of morphnext's, checked against it: the tests plan
 the same letter pairs from the same font files as morphnext 0.7.1 and must
-draw the same shapes.
+draw the same shapes. The tests run on macOS and the iOS simulator.
 
 ## Demo
 
-On a Mac, `swift run MorphTextDemo`: four morphs, a spring and a scrubber.
-`MorphText.swift` has an Xcode preview too.
+On a Mac, `swift run MorphTextDemo`: six morphs (weight, words, fonts, size,
+a word into a symbol, a symbol into a symbol), a spring and a scrubber.
+`MorphText.swift` has Xcode previews too.
 
 ## License and attribution
 

@@ -6,22 +6,29 @@ import SwiftUI
 
 struct Pair: Identifiable {
     let id: String
-    let text: String
-    let toText: String
-    let from: MorphStyle
-    let to: MorphStyle
+    let from: MorphContent
+    let to: MorphContent
 }
 
 let pairs: [Pair] = [
-    Pair(id: "Weight", text: "Morph", toText: "Morph",
-         from: .system(size: 72, weight: .ultraLight), to: .system(size: 72, weight: .black)),
-    Pair(id: "Words", text: "Amethyst", toText: "Citrine",
-         from: .system(size: 64, weight: .medium), to: .system(size: 64, weight: .medium)),
-    Pair(id: "Fonts", text: "Serif", toText: "Rounded",
-         from: .system(size: 64, weight: .regular, design: .serif, color: .indigo),
-         to: .system(size: 64, weight: .heavy, design: .rounded, color: .orange)),
-    Pair(id: "Size & spacing", text: "Title", toText: "Title",
-         from: .system(size: 24, weight: .semibold, kerning: 12), to: .system(size: 80, weight: .bold, kerning: -2)),
+    Pair(id: "Weight",
+         from: .text("Morph", style: .system(size: 72, weight: .ultraLight)),
+         to: .text("Morph", style: .system(size: 72, weight: .black))),
+    Pair(id: "Words",
+         from: .text("Amethyst", style: .system(size: 64, weight: .medium)),
+         to: .text("Citrine", style: .system(size: 64, weight: .medium))),
+    Pair(id: "Fonts",
+         from: .text("Serif", style: .system(size: 64, weight: .regular, design: .serif, color: .indigo)),
+         to: .text("Rounded", style: .system(size: 64, weight: .heavy, design: .rounded, color: .orange))),
+    Pair(id: "Size",
+         from: .text("Title", style: .system(size: 24, weight: .semibold, kerning: 12)),
+         to: .text("Title", style: .system(size: 80, weight: .bold, kerning: -2))),
+    Pair(id: "Send",
+         from: .text("Send", style: .system(size: 56, weight: .semibold, color: .blue)),
+         to: .symbol("paperplane.fill", size: 56, weight: .semibold, color: .blue)),
+    Pair(id: "Symbols",
+         from: .symbol("heart", size: 72, color: .pink),
+         to: .symbol("star.fill", size: 72, color: .orange)),
 ]
 
 struct DemoView: View {
@@ -37,7 +44,7 @@ struct DemoView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
 
-            MorphText(pair.text, toText: pair.toText, from: pair.from, to: pair.to, progress: progress)
+            MorphBetween(from: pair.from, to: pair.to, progress: progress)
                 .frame(height: 120)
 
             HStack {
@@ -51,7 +58,7 @@ struct DemoView: View {
             }
         }
         .padding(32)
-        .frame(minWidth: 560)
+        .frame(minWidth: 640)
         .onChange(of: selected) { progress = 0 }
     }
 }
