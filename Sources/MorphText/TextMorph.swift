@@ -96,6 +96,10 @@ public final class TextMorph: @unchecked Sendable {
     /// are wider.
     static let cleansStrokes = false
 
+    /// Whether a stroke frame is drawn as one outline from its distance
+    /// field (`strokeOutline`), seamless, rather than an outline a stroke.
+    static let strokesAsOneOutline = true
+
     /// Whether a word gathers into a single glyph here (or one opens into
     /// a word), as one shape.
     var gathers: Bool { converge && (a.letters.count == 1) != (b.letters.count == 1) }
@@ -337,6 +341,19 @@ public final class TextMorph: @unchecked Sendable {
         // trailing hairlines taken out. Not at all at either end.
         let cleaning = Self.cleansStrokes ? sin(Double.pi * min(max(t, 0), 1)) : 0
         func draw(_ strokes: StrokeMorph, _ corners: (Corners, Corners), origin: CGPoint, em: CGFloat) {
+            if Self.strokesAsOneOutline, t > 0, t < 1 {
+                let lines = strokes.at(t)
+                var pieces: [[Double]] = []
+                for (c, grown, end) in [(corners.0, leaving, false), (corners.1, arriving, true)] where grown > 0 && !c.pieces.isEmpty {
+                    let anchors = strokes.anchors(ObjectIdentifier(c), c.middles, end: end)
+                    pieces += c.polygons(grown: grown) { n in strokes.drift(anchors[n].track, anchors[n].point, end: end) }
+                }
+                // The soft join between strokes fades in and out with the
+                // flight: none at either end, where the ink is the letter's.
+                let join = 0.03 * sin(Double.pi * t)
+                add(strokeOutline(lines, pieces, join: join, pixelsPerEm: pixelsPerEm(points: Double(em))), origin: origin, em: em)
+                return
+            }
             if cleaning > 1e-3 {
                 let lines = strokes.at(t)
                 var pieces: [[Double]] = []

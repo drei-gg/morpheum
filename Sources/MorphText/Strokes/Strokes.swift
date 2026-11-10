@@ -831,7 +831,24 @@ final class StrokeMorph {
                 let ay = ja < 0 ? y : sumA[2 * ja + 1] / Double(sizeA[ja])
                 let bx = jb < 0 ? x : sumB[2 * jb] / Double(sizeB[jb])
                 let by = jb < 0 ? y : sumB[2 * jb + 1] / Double(sizeB[jb])
-                let dx = ax + (bx - ax) * w - x, dy = ay + (by - ay) * w - y
+                // A joint at both ends hands over from one to the other. One at
+                // only one end holds through the middle: closed by halfway when
+                // it's the end's, open only after halfway when it's the start's.
+                // (Pulled in step with t, a letter came apart mid-flight: an n's
+                // stem left its arch.)
+                let dx: Double, dy: Double
+                if ja >= 0 && jb >= 0 {
+                    dx = ax + (bx - ax) * w - x
+                    dy = ay + (by - ay) * w - y
+                } else if jb >= 0 {
+                    let pull = min(1, 2 * w)
+                    dx = (bx - x) * pull
+                    dy = (by - y) * pull
+                } else {
+                    let pull = min(1, 2 * (1 - w))
+                    dx = (ax - x) * pull
+                    dy = (ay - y) * pull
+                }
                 if end == 0 {
                     dx0 = dx
                     dy0 = dy
