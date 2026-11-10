@@ -151,6 +151,25 @@ paper plane, optimised, on an Intel Mac VM), so `MorphBetween` plans on a
 background queue as soon as its ends are known, and each letter is traced
 once per font whatever it morphs into.
 
+## QR codes
+
+Two QR codes morph module by module, whatever their sizes:
+
+```swift
+MorphBetween(from: .qrCode(QRCode(message: oldLink)!, side: 200),
+             to: .qrCode(QRCode(message: newLink)!, side: 200),
+             progress: t)
+```
+
+Modules dark in both stay put. The others slide to the nearest free module
+of the other code in a wave across it; one with no partner merges into a
+neighbour, or splits off from one, so nothing pops. The three finder
+squares move as units, so they stay crisp concentric squares as the grid
+grows or shrinks. Every frame is a code's worth of squares. It plans in a
+few milliseconds and draws in well under one. `QRCode(rows:)` and
+`QRCode(count:dark:)` take modules from any generator; into anything that
+isn't a QR code, a code morphs as a shape.
+
 ## Styles
 
 A SwiftUI `Font` can't be read back as an outline, so each end takes a

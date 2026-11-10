@@ -104,6 +104,13 @@ public final class TextMorph: @unchecked Sendable {
     /// a word), as one shape.
     var gathers: Bool { converge && (a.letters.count == 1) != (b.letters.count == 1) }
 
+    /// Between two QR codes, module by module, whatever the engine: planned
+    /// on first use.
+    private lazy var qrMorph: QRMorph? = {
+        guard let qa = a.qr, let qb = b.qr else { return nil }
+        return QRMorph(from: qa, to: qb)
+    }()
+
     /// The start's text.
     public var fromText: String { a.text }
     /// The end's text.
@@ -284,6 +291,9 @@ public final class TextMorph: @unchecked Sendable {
 
     /// Plans every pair now rather than on the first frame between the ends.
     public func prepare() {
+        lock.lock()
+        defer { lock.unlock() }
+        if qrMorph != nil { return }
         _ = whole
         _ = pairs
     }
@@ -374,6 +384,17 @@ public final class TextMorph: @unchecked Sendable {
                 }
             }
         }
+        lock.lock()
+        let qr = qrMorph
+        lock.unlock()
+        if let qr {
+            // Two QR codes: the unit square carried from one code's box to the
+            // other's, growing or shrinking between their sizes.
+            let side = a.size.width + (b.size.width - a.size.width) * CGFloat(min(max(t, 0), 1))
+            let origin = CGPoint(x: originA.x + (originB.x - originA.x) * t, y: originA.y + (originB.y - originA.y) * t)
+            add(qr.polygons(at: t), origin: origin, em: side)
+            return path
+        }
         if let whole {
             // One shape, carried from one end's place in the box to the other's.
             let unit = max(a.em, b.em)
@@ -424,6 +445,7 @@ public final class TextMorph: @unchecked Sendable {
     /// at `t`: the nearer end's letter, carried between the two places.
     /// Spaces are left out.
     func lettersAsText(at t: Double, in size: CGSize) -> [(String, CTFont, CGPoint)] {
+        if a.qr != nil && b.qr != nil { return [] }
         if whole != nil { return [] }
         let (originA, originB) = origins(in: size)
         let pairs = self.pairs

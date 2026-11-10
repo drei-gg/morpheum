@@ -13,6 +13,7 @@ public struct MorphContent: Hashable, @unchecked Sendable {
         case text(String, MorphStyle.Geometry)
         case symbol(String, size: CGFloat, weight: Font.Weight)
         case shape(Shape)
+        case qr(QRCode, side: CGFloat)
 
         /// Whether it's one glyph (a symbol or shape) rather than a word.
         var isGlyph: Bool {
@@ -66,6 +67,19 @@ public struct MorphContent: Hashable, @unchecked Sendable {
             color: color,
             accessibilityLabel: accessibilityLabel
         )
+    }
+
+    /// A QR code's modules in `color`, `side` points square. Two QR codes
+    /// morph module by module, whatever their grids: the modules rearrange
+    /// themselves, squares all the way. Into anything else, it morphs as
+    /// a shape.
+    public static func qrCode(
+        _ code: QRCode,
+        side: CGFloat,
+        color: Color = .primary,
+        accessibilityLabel: String? = nil
+    ) -> MorphContent {
+        MorphContent(kind: .qr(code, side: side), color: color, accessibilityLabel: accessibilityLabel)
     }
 
     /// The solid shape an SVG document fills, scaled to fit `size` and
@@ -145,6 +159,11 @@ extension MorphContent.Kind {
             let box = CGSize(width: shape.width, height: shape.height)
             let path = shape.path.isEmpty ? nil : shape.path
             return WordLayout(vector: path, name: "shape", box: box, baseline: box.height, em: max(box.height, 1))
+        case .qr(let code, let side):
+            var layout = WordLayout(vector: code.path(side: side), name: "QR code", box: CGSize(width: side, height: side),
+                                    baseline: side, em: side)
+            layout.qr = code
+            return layout
         }
     }
 }

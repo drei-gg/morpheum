@@ -48,6 +48,8 @@ struct WordLayout: @unchecked Sendable {
     let baseline: CGFloat
     /// The font size, in points.
     let em: CGFloat
+    /// The QR code it draws, for a QR code.
+    var qr: QRCode? = nil
 
     init(_ text: String, style: MorphStyle.Geometry) {
         self.text = text
