@@ -15,7 +15,7 @@ import SwiftUI
 /// - With Reduce Motion on, or a nil `animation`, changes apply at once.
 ///
 /// At rest it is the content itself: text as CoreText draws it, a symbol as
-/// `Image(systemName:)`. It sits happily inside a stock control:
+/// its outline. It sits happily inside a stock control:
 ///
 /// ```swift
 /// Button { save() } label: {

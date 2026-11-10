@@ -71,16 +71,17 @@ MorphBetween(from: .text("Send", style: .system(size: 28, weight: .semibold)),
 
 A word and a symbol morph as one shape, every letter from its place in the
 word; one symbol morphs into another as a glyph does. At rest a symbol end is
-`Image(systemName:)` itself.
+its own outline, filled where the morph lands it (`Image(systemName:)` would
+sit up to 3/4 of a point elsewhere, and the landing would step).
 
 No public API hands over a symbol's outline, so SwiftUI draws the symbol
 into a PDF, which keeps it vector, and the PDF's paths are read back, soft
 masks (the tick cut out of `checkmark.circle.fill`) included. Each symbol is
 read once per size, weight and screen scale. Monochrome only: a multicolour
-or hierarchical symbol's layers become one shape in one colour. SwiftUI
-places a symbol's pixels by up to 3/4 of a point differently depending on
-where it sits, so the first frame of a morph can land that far from the
-resting `Image`.
+or hierarchical symbol's layers become one shape in one colour. Next to a
+plain `Image(systemName:)` the outline may sit up to 3/4 of a point apart,
+since SwiftUI places an image's pixels differently depending on where it
+sits.
 
 ## Shapes of your own
 

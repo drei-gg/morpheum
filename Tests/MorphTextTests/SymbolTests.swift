@@ -21,9 +21,10 @@ import Testing
         return (width, height, stride(from: 3, to: rgba.count, by: 4).map { rgba[$0] })
     }
 
-    /// At rest it is `Image(systemName:)` itself; the first frame of the morph,
-    /// the outline read from SwiftUI's PDF, is the same symbol, cut-outs (a
-    /// soft mask) and badges included, within 3/4 of a point of its place.
+    /// The outline read from SwiftUI's PDF is the symbol `Image(systemName:)`
+    /// draws, cut-outs (a soft mask) and badges included, within 3/4 of a
+    /// point of its place; and at rest the morph draws that outline exactly
+    /// where its first frame does, so it leaves and lands without a step.
     @Test(arguments: [
         "heart.fill", "star", "checkmark.circle.fill", "gearshape.2",
         "person.crop.circle.badge.plus", "trash.slash.fill", "wifi", "paperplane.fill",
@@ -40,19 +41,19 @@ import Testing
         )
         #expect(image.width == morph.width && image.height == morph.height, "\(name)")
         guard image.width == morph.width, image.height == morph.height else { return }
-        var both = 0, either = 0
-        for i in image.alpha.indices {
-            let a = image.alpha[i] > 127, b = morph.alpha[i] > 127
-            if a && b { both += 1 }
-            if a || b { either += 1 }
-        }
-        let overlap = Double(both) / Double(max(either, 1))
         // What the morph draws as its first frame, on the same pixels.
         let firstFrame = try pixels(
             MorphBetween(from: .symbol(name, size: 48, color: .black), to: .text("x", style: .system(size: 48)), progress: 1e-9)
                 .morphEngine(.outline)
                 .frame(width: 100, height: 80)
         )
+        var both = 0, either = 0
+        for i in morph.alpha.indices {
+            let a = morph.alpha[i] > 127, b = firstFrame.alpha[i] > 127
+            if a && b { both += 1 }
+            if a || b { either += 1 }
+        }
+        let overlap = Double(both) / Double(max(either, 1))
         // SwiftUI places a symbol's ink by up to 3/4 of a point differently
         // depending on where the symbol sits (paperplane.fill: 3.5 pt into its
         // box alone, 4.25 pt in a frame), so no fixed outline lands on its
@@ -84,7 +85,7 @@ import Testing
             }
         }
         #expect(handover > 0.98, "\(name): the first frame shares \(handover) of the symbol's ink")
-        #expect(overlap > 0.97, "\(name): \(overlap) of the ink is shared")
+        #expect(overlap > 0.99, "\(name): at rest and the first frame share \(overlap) of the ink")
     }
 
     @Test func aSymbolSitsOnTheBaseline() throws {

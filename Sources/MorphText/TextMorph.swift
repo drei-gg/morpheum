@@ -246,7 +246,23 @@ public final class TextMorph: @unchecked Sendable {
     /// finds it done: tracing letters to strokes takes a few milliseconds a
     /// letter. A frame asked for meanwhile waits for it.
     public func prepareInBackground() {
-        DispatchQueue.global(qos: .userInitiated).async { self.prepare() }
+        DispatchQueue.global(qos: .userInitiated).async {
+            self.prepare()
+            self.warm()
+        }
+    }
+
+    /// Traces each end's letters to strokes ahead of any morph that needs
+    /// them (cached by font and letter): a morph that starts from this one's
+    /// ends, an `AnimatedMorph` at rest changing to new content, then only
+    /// pairs them, without tracing on the first frame.
+    func warm() {
+        guard engine != .outline else { return }
+        for letter in a.letters + b.letters {
+            if let outline = letter.outline, letter.strokeKey != nil {
+                _ = StrokeCache.shared.glyph(letter.strokeKey, outline)
+            }
+        }
     }
 
     /// Where each end's line sits in a box of `size`: its top left.

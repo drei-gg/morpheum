@@ -66,7 +66,8 @@ public struct MorphText: View {
 /// word.
 ///
 /// At exactly 0 and 1 it draws `from` or `to` as they are: text as CoreText
-/// draws it, a symbol as `Image(systemName:)` does, a shape filled.
+/// draws it, a symbol or a shape as its outline filled, exactly where the
+/// morph's last frame put them.
 ///
 /// ```swift
 /// MorphBetween(from: .text("Send", style: .system(size: 28, weight: .semibold)),
@@ -116,17 +117,12 @@ public struct MorphBetween: View, Animatable {
         let size = morph.size(at: t)
         let colors = (from.color, to.color)
         let label = t < 0.5 ? from.label : to.label
-        Group {
-            // A symbol at rest is SwiftUI's own, pixel for pixel.
-            if (t == 0 || t == 1), case .symbol(let name, let symbolSize, let weight) = (t == 0 ? from : to).kind {
-                Image(systemName: name)
-                    .font(.system(size: symbolSize, weight: weight))
-                    .foregroundStyle(t == 0 ? from.color : to.color)
-            } else {
-                Canvas(rendersAsynchronously: false) { context, box in
-                    drawMorph(morph, at: t, colors: colors, in: &context, size: box)
-                }
-            }
+        // A symbol at rest is its own outline filled, not `Image(systemName:)`:
+        // SwiftUI places an image's pixels by up to 3/4 of a point
+        // differently depending on where it sits, so swapping to one as the
+        // morph lands moved the symbol with a visible step.
+        Canvas(rendersAsynchronously: false) { context, box in
+            drawMorph(morph, at: t, colors: colors, in: &context, size: box)
         }
         .frame(width: size.width, height: size.height)
         .accessibilityElement()
@@ -203,8 +199,18 @@ func drawMorph(
 }
 
 /// Draws `line` with its baseline's left end at `pen`, in a y-down context.
+///
+/// Exactly where the morph's outlines would be, so it lands without a step:
+/// glyphs placed at their fractional positions, not rounded to the pixel
+/// (which moved a word by up to a pixel as the text took over), and no
+/// macOS font smoothing (which drew it some 7% heavier than its outline).
 func drawLine(_ line: CTLine, at pen: CGPoint, color: CGColor, in cg: CGContext) {
     cg.saveGState()
+    cg.setShouldSmoothFonts(false)
+    cg.setAllowsFontSubpixelPositioning(true)
+    cg.setShouldSubpixelPositionFonts(true)
+    cg.setAllowsFontSubpixelQuantization(true)
+    cg.setShouldSubpixelQuantizeFonts(false)
     cg.setFillColor(color)
     cg.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
     cg.textPosition = pen

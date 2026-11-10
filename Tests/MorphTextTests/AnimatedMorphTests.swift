@@ -58,6 +58,9 @@ private struct Host: View {
     let model: Switch
     var body: some View {
         AnimatedMorph(model.content, animation: .linear(duration: 0.6)) { model.ends += 1 }
+            // The timeline is what's under test: outlines plan in a moment even
+            // in a debug build, where tracing strokes takes seconds.
+            .morphEngine(.outline)
             .frame(width: 300, height: 120)
             .background(.white)
             .environment(\.colorScheme, .light)
@@ -118,13 +121,16 @@ private struct Host: View {
         await wait(0.2)
         let start = snapshot(view)
         model.content = .symbol("checkmark", size: 40, weight: .semibold)
-        await wait(0.3)
-        let middle = snapshot(view)
-        await wait(0.8)
-        let end = snapshot(view)
+        // Every 50 ms for two seconds: other suites share the main actor, so
+        // when the frames come varies; that some frame is neither end doesn't.
+        var frames: [[UInt8]] = []
+        for _ in 0..<40 {
+            await wait(0.05)
+            frames.append(snapshot(view))
+        }
+        let end = frames.last!
         #expect(difference(start, end) > 200)
-        #expect(difference(middle, start) > 50, "the middle frame is the start")
-        #expect(difference(middle, end) > 50, "the middle frame is the end")
+        #expect(frames.contains { difference($0, start) > 50 && difference($0, end) > 50 }, "no frame between the ends")
     }
 
     @Test func aSupersededMorphDoesNotReportItsEnd() async {

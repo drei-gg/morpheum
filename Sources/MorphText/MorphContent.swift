@@ -133,7 +133,10 @@ extension MorphContent.Kind {
             let key = SymbolKey(name: name, size: size, weight: weight, scale: scale)
             if let known = symbolLayouts[key] { return known }
             let outline = SymbolOutline(name, size: size, weight: weight, scale: scale)
-            let layout = WordLayout(symbol: outline, name: name, size: size)
+            var layout = WordLayout(symbol: outline, name: name, size: size)
+            // Its strokes are kept by name, size, weight and scale, as a
+            // letter's are by font.
+            layout.keyStrokes("symbol|\(name)|\(size)|\(weight)|\(scale)")
             symbolLayouts[key] = layout
             return layout
         case .shape(let shape):

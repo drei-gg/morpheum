@@ -40,7 +40,7 @@ struct WordLayout: @unchecked Sendable {
     let line: CTLine?
     /// The art at rest, in points from the box's top left; nil for text.
     let vector: CGPath?
-    let letters: [Letter]
+    private(set) var letters: [Letter]
     /// The line's typographic size: its advance, by its ascent plus descent
     /// plus leading.
     let size: CGSize
@@ -155,6 +155,12 @@ struct WordLayout: @unchecked Sendable {
         var toEms = CGAffineTransform(a: 1 / em, b: 0, c: 0, d: 1 / em, tx: 0, ty: -baseline / em)
         let shape = path.copy(using: &toEms).flatMap { (try? MorphOutline(path: $0)) ?? nil }
         letters = [Letter(character: "\u{FFFC}", pen: 0, em: em, outline: shape)]
+    }
+
+    /// Keeps art's strokes under `key` (a symbol's name, size, weight and
+    /// scale), so it is traced once whatever it morphs into.
+    mutating func keyStrokes(_ key: String) {
+        for i in letters.indices { letters[i].strokeKey = key }
     }
 
     /// `text` in `style` as one CoreText line, ligatures off.

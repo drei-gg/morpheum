@@ -87,7 +87,31 @@ final class StrokeCache: @unchecked Sendable {
 extension MorphOutline {
     /// The outline as closed polygons in ems, interleaved x, y, filled
     /// non-zero: what the stroke tracer and the judge read.
-    var polygons: [[Double]] { shape.contours.map(\.points) }
+    ///
+    /// Flattened from its own curves, eight points a curve, as the Flutter
+    /// package flattens a glyph: the tracer's thresholds were chosen on
+    /// those. (The morph's evenly resampled contours trace differently: a
+    /// C's spine splits at a spur that should have been pruned.)
+    var polygons: [[Double]] {
+        guard let exact = shape.exactContours, exact.count == shape.contours.count else {
+            return shape.contours.map(\.points)
+        }
+        return exact.map { contour in
+            let p = contour.points
+            var out: [Double] = []
+            out.reserveCapacity(contour.segmentCount * 16)
+            for s in 0..<contour.segmentCount {
+                let o = 6 * s
+                for k in 0..<8 {
+                    let t = Double(k) / 8, u = 1 - t
+                    let a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t
+                    out.append(a * p[o] + b * p[o + 2] + c * p[o + 4] + d * p[o + 6])
+                    out.append(a * p[o + 1] + b * p[o + 3] + c * p[o + 5] + d * p[o + 7])
+                }
+            }
+            return out
+        }
+    }
 }
 
 /// A name for the font that draws a letter and the letter, to cache its
