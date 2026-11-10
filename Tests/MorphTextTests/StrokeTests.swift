@@ -38,7 +38,7 @@ private func letter(_ character: String, weight: Font.Weight = .regular) throws 
         }
         for piece in corners.pieces { drawn.append(piece.points.map { $0 / Corners.scale }) }
         let (onlyLetter, onlyDrawn, area) = inkDifference(outline.polygons, drawn)
-        // Within a percent and a half, as `landsTrue` asks.
+        // Within a percent and a half of the letter's ink.
         #expect(Double(onlyLetter + onlyDrawn) < 0.015 * Double(area), "\(character): \(onlyLetter) + \(onlyDrawn) of \(area)")
     }
 
@@ -165,6 +165,54 @@ private func letter(_ character: String, weight: Font.Weight = .regular) throws 
                               WordLayout(vector: bar, name: "bar", box: CGSize(width: 90, height: 40), baseline: 40, em: 40))
         #expect(morph.pairs.count == 1)
         #expect(morph.pairs[0].flow != nil)
+    }
+
+}
+
+/// A toy engine of a test's own: the start shrinks away to the middle of
+/// its box, then the end grows from the middle of its own.
+private final class Swap: Morpher {
+    let from: [[Double]], to: [[Double]]
+    init(_ from: MorphOutline, _ to: MorphOutline) {
+        self.from = from.polygons
+        self.to = to.polygons
+    }
+    func polygons(at t: Double) -> [[Double]] {
+        let (shape, scale) = t < 0.5 ? (from, 1 - 2 * t) : (to, 2 * t - 1)
+        return shape.map { p in
+            let n = Double(p.count / 2)
+            let cx = stride(from: 0, to: p.count, by: 2).reduce(0) { $0 + p[$1] } / n
+            let cy = stride(from: 1, to: p.count, by: 2).reduce(0) { $0 + p[$1] } / n
+            return p.enumerated().map { k, v in (k % 2 == 0 ? cx : cy) + (v - (k % 2 == 0 ? cx : cy)) * scale }
+        }
+    }
+}
+
+@Suite struct CustomEngines {
+    @Test func anEngineOfYourOwnDrawsTheMorph() throws {
+        let swap = MorphEngine.custom("swap") { from, to, _ in Swap(from, to) }
+        let word = TextMorph("Ruby", from: .system(size: 40), to: "Opal", in: .system(size: 40, weight: .bold), engine: swap)
+        #expect(word.engine == swap && word.engine != .transport)
+        #expect(word.pairs.allSatisfy { $0.morpher is Swap })
+        // Halfway, a letter has shrunk to nothing; a quarter of the way, to
+        // half its size.
+        let morph = TextMorph("R", from: .system(size: 40), to: "O", in: .system(size: 40, weight: .bold), engine: swap)
+        #expect(morph.path(at: 0.5, in: morph.size(at: 0.5)).boundingBoxOfPath.height < 1)
+        let start = morph.path(at: 0, in: morph.size(at: 0)).boundingBoxOfPath
+        let quarter = morph.path(at: 0.25, in: morph.size(at: 0.25)).boundingBoxOfPath
+        // (About: SF draws an R as overlapping pieces, each shrinking about
+        // its own middle.)
+        #expect(abs(quarter.height - start.height / 2) < 2)
+    }
+
+    @MainActor
+    @Test func itGathersAWordToo() throws {
+        let swap = MorphEngine.custom("swap") { from, to, context in
+            #expect(context.gathering)
+            return Swap(from, to)
+        }
+        let morph = TextMorph(from: .text("Send", style: .system(size: 40)), to: .symbol("paperplane.fill", size: 40), engine: swap)
+        #expect(try #require(morph.whole).morpher is Swap)
     }
 }
 

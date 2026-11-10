@@ -134,12 +134,35 @@ Letters change shape one of three ways:
   available by name; they tear where a letter's pieces part and seam where
   they meet, which transport can't.
 
+### Engines of your own
+
+An engine is anything that plans a morph between two outlines once and
+then draws any frame of it. Conform to `Morpher` and hand it over:
+
+```swift
+final class Dissolve: Morpher {
+    init(_ from: MorphOutline, _ to: MorphOutline) { … }   // plan
+    func polygons(at t: Double) -> [[Double]] { … }         // a frame, in ems
+}
+
+MorphBetween(from: a, to: b, progress: t)
+    .morphEngine(.custom("dissolve") { from, to, context in Dissolve(from, to) })
+```
+
+`MorphOutline.polygons` gives each end as closed polygons in ems; return
+the frame the same way, each end's own outline at 0 and 1, and the
+package carries it into place, draws it, and hands over to the text at
+rest. `context` says how many points an em is on screen, and whether it's
+a whole word gathering into a symbol. The built-in engines are written
+the same way.
+
 Matching engines (outlines, strokes) must make whatever has no partner
 vanish: a word's spare letters melt, or draw back and tear. That's why a
 word into a symbol goes by transport. Two more engines are in the package
-as experiments: `.fields` (one end drains into the other; clean, but they
-read as overlaid) and a cleanup pass for stroke frames (off: it seals only
-gaps narrower than the visible tears).
+as experiments: `.strokes` (a calligraphic look between letters, drawn as
+one outline a frame; a stroke that grows in can part for a frame or two)
+and `.fields` (one end drains into the other: clean, but they read as
+overlaid).
 
 ```swift
 MorphBetween(from: send, to: plane, progress: t)

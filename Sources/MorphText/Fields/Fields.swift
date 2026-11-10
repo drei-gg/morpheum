@@ -78,30 +78,6 @@ func inkMask(_ lines: [[Double]], _ polygons: [[Double]], pad: Double, pixelsPer
     return (mask, w, h, ox, oy, px)
 }
 
-/// A stroke frame's ink, cleaned: pieces that nearly meet are joined, and
-/// anything thinner than a hair is gone. A morphological closing (grow by
-/// `close` ems, shrink back) seals the gaps where two strokes pull apart at
-/// a join; an opening (shrink by `open` ems, grow back) takes out the
-/// whiskers a stroke trails as it draws back. As closed polygons in ems.
-func cleanedInk(_ lines: [[Double]], _ polygons: [[Double]], close: Double, open: Double) -> [[Double]] {
-    let pad = close + open + 3 / fieldPixelsPerEm
-    guard let grid = inkMask(lines, polygons, pad: pad, pixelsPerEm: fieldPixelsPerEm) else { return [] }
-    let (w, h) = (grid.w, grid.h)
-    let r = close * fieldPixelsPerEm, q = open * fieldPixelsPerEm
-    var field = signedDistance(grid.mask, w, h)
-    if r > 0.05 {
-        let grown = signedDistance(field.map { $0 <= r ? 1 : 0 }, w, h)
-        field = grown.map { $0 + r }
-    }
-    if q > 0.05 {
-        let shrunk = signedDistance(field.map { $0 <= -q ? 1 : 0 }, w, h)
-        field = shrunk.map { $0 - q }
-    }
-    soften(&field, w, h)
-    let f = Field(values: field, w: w, h: h, x0: grid.ox + 0.5 * grid.px, y0: grid.oy + 0.5 * grid.px, step: grid.px)
-    return f.contours()
-}
-
 /// The signed distance field of `polygons` (closed, ems, non-zero), in ems,
 /// over their box plus `pad` ems.
 ///
