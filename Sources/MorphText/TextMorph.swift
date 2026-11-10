@@ -31,8 +31,8 @@ public final class TextMorph {
 
     let a: WordLayout
     let b: WordLayout
-    /// Whether a single glyph at one end (a symbol) gathers every letter of
-    /// the other.
+    /// Whether a single glyph at one end (a symbol, a shape) gathers every
+    /// letter of the other.
     let converge: Bool
     private var _pairs: [Pair]?
     private var _whole: MorphOutlinePlan??
@@ -51,8 +51,7 @@ public final class TextMorph {
 
     @MainActor
     convenience init(from: MorphContent.Kind, to: MorphContent.Kind, scale: CGFloat) {
-        let symbol = { (kind: MorphContent.Kind) in if case .symbol = kind { true } else { false } }
-        self.init(from.layout(scale: scale), to.layout(scale: scale), converge: symbol(from) || symbol(to))
+        self.init(from.layout(scale: scale), to.layout(scale: scale), converge: from.isGlyph || to.isGlyph)
     }
 
     init(_ a: WordLayout, _ b: WordLayout, converge: Bool = false) {

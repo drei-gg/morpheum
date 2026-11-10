@@ -47,10 +47,10 @@ public struct AnimatedMorph: View {
     }
 
     /// A morph between text alone settles without overshoot, since a bounce
-    /// reads as a wobble on letters; one with a symbol at either end gets a
-    /// little snap.
+    /// reads as a wobble on letters; one with a symbol or shape at either end
+    /// gets a little snap.
     public static func defaultAnimation(from: MorphContent, to: MorphContent) -> Animation {
-        from.isSymbol || to.isSymbol ? .snappy(duration: 0.45, extraBounce: 0.05) : .smooth(duration: 0.45)
+        from.kind.isGlyph || to.kind.isGlyph ? .snappy(duration: 0.45, extraBounce: 0.05) : .smooth(duration: 0.45)
     }
 
     public var body: some View {

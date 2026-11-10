@@ -9,8 +9,9 @@ The Swift sibling of [morphtext](https://github.com/drei-gg/morphtext) for
 Flutter. SwiftUI, iOS 17 and macOS 14, Swift Package Manager.
 
 > Early: text into text (any weight, size, spacing or font), text into and
-> out of SF Symbols, and an implicit `AnimatedMorph` work, with tests on macOS
-> and iOS. Not published: it lives in the Seven and Done apps first.
+> out of SF Symbols and your own vector shapes, and an implicit
+> `AnimatedMorph` work, with tests on macOS and iOS. Not published: it lives
+> in the Seven and Done apps first.
 
 ```swift
 import MorphText
@@ -79,6 +80,24 @@ or hierarchical symbol's layers become one shape in one colour. SwiftUI
 places a symbol's pixels by up to 3/4 of a point differently depending on
 where it sits, so the first frame of a morph can land that far from the
 resting `Image`.
+
+## Shapes of your own
+
+Vector art morphs too: an app icon's glyph into a logo, a logo into a word.
+Give it a `CGPath` in a box, or SVG:
+
+```swift
+let icon = MorphContent.shape(glyphPath, size: CGSize(width: 160, height: 160), color: ink)
+let mark = try MorphContent.shape(svg: squaremarkSVG, size: CGSize(width: 160, height: 160), color: red)
+MorphBetween(from: icon, to: mark, progress: t)
+```
+
+The SVG is read for its solid shape: path data (every command, arcs
+included), transforms on paths and groups, the viewBox (fitted into `size`
+and centred, as SVG does by default) and fill rules. Anything in `<defs>`,
+`<clipPath>` or `<mask>`, and paths filled with `none` or a gradient, are
+left out as decoration, so draw shadows and highlights yourself, over the
+morph. One shape, one colour: the art's own colours are ignored.
 
 ## Styles
 

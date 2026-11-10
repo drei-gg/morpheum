@@ -1,16 +1,30 @@
 import SwiftUI
 
-/// What a morph shows at one end: a line of text in a style, or an SF
-/// Symbol.
+/// What a morph shows at one end: a line of text in a style, an SF Symbol,
+/// or a shape of your own (vector art: a path, or an SVG).
 ///
-/// Text and symbols morph into each other freely: a word flows into a
-/// symbol, a symbol into a word or another symbol, a word into another word.
+/// They morph into each other freely: a word flows into a symbol, a symbol
+/// into a word or another symbol, an app icon's glyph into a logo, a word
+/// into another word.
 public struct MorphContent: Hashable, @unchecked Sendable {
     // @unchecked: a text's style holds a CTFont, which is immutable.
 
     enum Kind: Hashable {
         case text(String, MorphStyle.Geometry)
         case symbol(String, size: CGFloat, weight: Font.Weight)
+        case shape(Shape)
+
+        /// Whether it's one glyph (a symbol or shape) rather than a word.
+        var isGlyph: Bool {
+            if case .text = self { false } else { true }
+        }
+    }
+
+    /// A filled path in a box: points, y down, from the box's top left.
+    struct Shape: Hashable, @unchecked Sendable {
+        let path: CGPath
+        let width: CGFloat
+        let height: CGFloat
     }
 
     let kind: Kind
@@ -38,9 +52,66 @@ public struct MorphContent: Hashable, @unchecked Sendable {
         MorphContent(kind: .symbol(name, size: size, weight: weight), color: color, accessibilityLabel: accessibilityLabel)
     }
 
-    var isSymbol: Bool {
-        if case .symbol = kind { true } else { false }
+    /// `path` filled in `color`, in a box of `size`: points, y down, from the
+    /// box's top left. It sits on the box's bottom edge as if that were a
+    /// baseline, and morphs with a word as one shape, as a symbol does.
+    public static func shape(
+        _ path: CGPath,
+        size: CGSize,
+        color: Color = .primary,
+        accessibilityLabel: String? = nil
+    ) -> MorphContent {
+        MorphContent(
+            kind: .shape(Shape(path: path, width: size.width, height: size.height)),
+            color: color,
+            accessibilityLabel: accessibilityLabel
+        )
     }
+
+    /// The solid shape an SVG document fills, scaled to fit `size` and
+    /// centred in it, as SVG fits its viewBox by default, filled in `color`.
+    ///
+    /// Read: path data (every command, arcs included), transforms on paths
+    /// and groups, the viewBox, fill rules. Left out as decoration: anything
+    /// in `<defs>`, `<clipPath>` or `<mask>`, and paths filled with `none` or
+    /// a gradient. Its own colours are ignored; it's one shape in `color`.
+    /// Throws when it can't read the SVG or it fills nothing.
+    public static func shape(
+        svg: String,
+        size: CGSize,
+        color: Color = .primary,
+        accessibilityLabel: String? = nil
+    ) throws -> MorphContent {
+        let (path, viewBox) = try SVG.document(svg)
+        return .shape(fitted(path, from: viewBox, into: size), size: size, color: color, accessibilityLabel: accessibilityLabel)
+    }
+
+    /// The shape SVG path data (a `d` attribute) draws in `viewBox`, scaled to
+    /// fit `size` and centred in it, filled in `color` with the non-zero rule
+    /// (or even-odd).
+    public static func shape(
+        svgPath data: String,
+        viewBox: CGRect,
+        size: CGSize,
+        evenOdd: Bool = false,
+        color: Color = .primary,
+        accessibilityLabel: String? = nil
+    ) throws -> MorphContent {
+        let path = try SVG.path(data).normalized(using: evenOdd ? .evenOdd : .winding)
+        return .shape(fitted(path, from: viewBox, into: size), size: size, color: color, accessibilityLabel: accessibilityLabel)
+    }
+
+    /// `path`, drawn in `box`, scaled to fit `size` and centred in it.
+    private static func fitted(_ path: CGPath, from box: CGRect, into size: CGSize) -> CGPath {
+        guard box.width > 0, box.height > 0 else { return path }
+        let scale = min(size.width / box.width, size.height / box.height)
+        var transform = CGAffineTransform(
+            translationX: (size.width - box.width * scale) / 2 - box.minX * scale,
+            y: (size.height - box.height * scale) / 2 - box.minY * scale
+        ).scaledBy(x: scale, y: scale)
+        return path.copy(using: &transform) ?? path
+    }
+
 
     /// What VoiceOver reads.
     var label: String {
@@ -65,6 +136,12 @@ extension MorphContent.Kind {
             let layout = WordLayout(symbol: outline, name: name, size: size)
             symbolLayouts[key] = layout
             return layout
+        case .shape(let shape):
+            // Its box's bottom edge stands in for a baseline, and its height
+            // for an em.
+            let box = CGSize(width: shape.width, height: shape.height)
+            let path = shape.path.isEmpty ? nil : shape.path
+            return WordLayout(vector: path, name: "shape", box: box, baseline: box.height, em: max(box.height, 1))
         }
     }
 }

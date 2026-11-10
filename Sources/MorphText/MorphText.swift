@@ -58,14 +58,15 @@ public struct MorphText: View {
 }
 
 /// `from` at progress 0 morphing into `to` at progress 1, outline into
-/// outline: text into text (as `MorphText`), a word into an SF Symbol, a
-/// symbol into a word, or one symbol into another.
+/// outline: text into text (as `MorphText`), a word into an SF Symbol or a
+/// shape of your own, or one symbol or shape into another.
 ///
-/// When one end is a single symbol and the other a word, the whole word and
-/// the symbol morph as one shape, each letter from its place in the word.
+/// When one end is a single symbol or shape and the other a word, the whole
+/// word and the symbol morph as one shape, each letter from its place in the
+/// word.
 ///
 /// At exactly 0 and 1 it draws `from` or `to` as they are: text as CoreText
-/// draws it, a symbol as `Image(systemName:)` does.
+/// draws it, a symbol as `Image(systemName:)` does, a shape filled.
 ///
 /// ```swift
 /// MorphBetween(from: .text("Send", style: .system(size: 28, weight: .semibold)),
@@ -178,9 +179,9 @@ func drawMorph(
             context.withCGContext { cg in
                 drawLine(line, at: CGPoint(x: origin.x, y: origin.y + end.baseline), color: color.cgColor, in: cg)
             }
-        } else if let symbol = end.symbol {
+        } else if let vector = end.vector {
             var placed = CGAffineTransform(translationX: origin.x, y: origin.y)
-            if let path = symbol.copy(using: &placed) {
+            if let path = vector.copy(using: &placed) {
                 context.fill(Path(path), with: .color(Color(color)))
             }
         }

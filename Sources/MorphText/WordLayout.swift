@@ -3,7 +3,7 @@ import Foundation
 
 /// One end of a morph laid out by CoreText on one line: its size, its
 /// baseline, and each letter's pen position (kerning included) and outline.
-/// Or an SF Symbol, as one letter in a box of its own.
+/// Or vector art (an SF Symbol, a shape), as one letter in a box of its own.
 ///
 /// A letter is a `Character` (an extended grapheme cluster), so `é` written
 /// as `e` and a combining accent is one letter, its glyphs one outline.
@@ -28,15 +28,14 @@ struct WordLayout: @unchecked Sendable {
     /// grows from or shrinks to: about the middle of a lowercase letter.
     static let gapHeight: CGFloat = 0.3
 
-    /// The text, or the symbol's name.
+    /// The text, or a name for the art.
     let text: String
-    /// The text's font and spacing; nil for a symbol.
+    /// The text's font and spacing; nil for art.
     let style: MorphStyle.Geometry?
-    /// The line CoreText draws at rest; nil for a symbol.
+    /// The line CoreText draws at rest; nil for art.
     let line: CTLine?
-    /// The symbol SwiftUI draws at rest, in points from the box's top left;
-    /// nil for text.
-    let symbol: CGPath?
+    /// The art at rest, in points from the box's top left; nil for text.
+    let vector: CGPath?
     let letters: [Letter]
     /// The line's typographic size: its advance, by its ascent plus descent
     /// plus leading.
@@ -49,7 +48,7 @@ struct WordLayout: @unchecked Sendable {
     init(_ text: String, style: MorphStyle.Geometry) {
         self.text = text
         self.style = style
-        symbol = nil
+        vector = nil
         em = CTFontGetSize(style.font)
         let line = Self.line(text, style: style)
         self.line = line
@@ -122,23 +121,34 @@ struct WordLayout: @unchecked Sendable {
     /// its pen (the box's left edge) and baseline. Empty when there's no such
     /// symbol.
     init(symbol outline: SymbolOutline?, name: String, size: CGFloat) {
+        guard let outline else {
+            self.init(vector: nil, name: name, box: .zero, baseline: 0, em: size)
+            return
+        }
+        self.init(vector: outline.path, name: name, box: outline.size, baseline: outline.baseline, em: size)
+    }
+
+    /// Vector art `path` (points, y down, from the top left of a `box`), as
+    /// one letter whose pen is the box's left edge, on `baseline`, `em` points
+    /// to the em. Empty without a path.
+    init(vector path: CGPath?, name: String, box: CGSize, baseline: CGFloat, em: CGFloat) {
         text = name
         style = nil
         line = nil
-        em = size
-        guard let outline else {
-            symbol = nil
+        self.em = em
+        guard let path else {
+            vector = nil
             letters = []
-            self.size = .zero
-            baseline = 0
+            size = .zero
+            self.baseline = 0
             return
         }
-        symbol = outline.path
-        self.size = outline.size
-        baseline = outline.baseline
-        var toEms = CGAffineTransform(a: 1 / size, b: 0, c: 0, d: 1 / size, tx: 0, ty: -outline.baseline / size)
-        let shape = outline.path.copy(using: &toEms).flatMap { (try? MorphOutline(path: $0)) ?? nil }
-        letters = [Letter(character: "\u{FFFC}", pen: 0, em: size, outline: shape)]
+        vector = path
+        size = box
+        self.baseline = baseline
+        var toEms = CGAffineTransform(a: 1 / em, b: 0, c: 0, d: 1 / em, tx: 0, ty: -baseline / em)
+        let shape = path.copy(using: &toEms).flatMap { (try? MorphOutline(path: $0)) ?? nil }
+        letters = [Letter(character: "\u{FFFC}", pen: 0, em: em, outline: shape)]
     }
 
     /// `text` in `style` as one CoreText line, ligatures off.
