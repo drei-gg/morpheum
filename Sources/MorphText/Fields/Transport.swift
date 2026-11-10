@@ -2,6 +2,7 @@
 // one shape to the other, so nothing is made or lost on the way and every
 // bit of the start travels to somewhere in the end.
 
+import Accelerate
 import Foundation
 
 /// One shape into another along the cheapest flow of ink between them.
@@ -28,7 +29,7 @@ final class TransportMorph: @unchecked Sendable {
 
     /// The morph from `from` to `to` (closed polygons in ems, non-zero, in
     /// one frame); nil when either is empty.
-    init?(from: [[Double]], to: [[Double]], grainsPerEm: Double = 28) {
+    init?(from: [[Double]], to: [[Double]], grainsPerEm: Double = 20) {
         guard let fa = distanceField(of: from, pad: 0.12), let fb = distanceField(of: to, pad: 0.12) else { return nil }
         a = fa
         b = fb
@@ -59,6 +60,8 @@ final class TransportMorph: @unchecked Sendable {
         centreB = cb
         let qa = pa.map { ($0.0 - ca.0, $0.1 - ca.1) }
         let qb = pb.map { ($0.0 - cb.0, $0.1 - cb.1) }
+        // Twenty grains to the em: the flow is as smooth as at twenty-eight,
+        // and the plan a quarter of the work.
         let (forward, backward) = transport(qa, qb, epsilon: (1.2 * s) * (1.2 * s))
         grainsA = zip(qa, forward).map { (p, q) in (p.0, p.1, q.0 - p.0, q.1 - p.1) }
         grainsB = zip(qb, backward).map { (p, q) in (p.0, p.1, q.0 - p.0, q.1 - p.1) }
@@ -75,66 +78,77 @@ final class TransportMorph: @unchecked Sendable {
     func polygons(at t: Double) -> [[Double]] {
         let t = min(max(t, 0), 1)
         let c = (centreA.0 + (centreB.0 - centreA.0) * t, centreA.1 + (centreB.1 - centreA.1) * t)
-        // The flow at `t`, on a coarse grid about the moving centre: each
-        // grain's displacement, spread where the grain is now.
+        // The flow at `t`, on a coarse grid (a grain's spacing) about the
+        // moving centre: each grain's displacement, spread where the grain
+        // is now. Near grains, theirs; further out, a wider average.
         let coarse = spacing
         let gx0 = reach.0, gy0 = reach.1
         let gw = Int(((reach.2 - reach.0) / coarse).rounded(.up)) + 1, gh = Int(((reach.3 - reach.1) / coarse).rounded(.up)) + 1
-        func flow(_ grains: [(x: Double, y: Double, dx: Double, dy: Double)], _ along: Double) -> (dx: [Double], dy: [Double]) {
-            var w1 = [Double](repeating: 0, count: gw * gh), w2 = w1
-            var x1 = w1, y1 = w1, x2 = w1, y2 = w1
-            let sigma1 = 2.0, sigma2 = 5.0
-            for g in grains {
-                let px = (g.x + g.dx * along - gx0) / coarse, py = (g.y + g.dy * along - gy0) / coarse
-                let r = Int((3 * sigma2).rounded(.up))
-                let ci = Int(px.rounded()), cj = Int(py.rounded())
-                for j in max(0, cj - r)...min(gh - 1, cj + r) {
-                    for i in max(0, ci - r)...min(gw - 1, ci + r) {
-                        let d2 = (Double(i) - px) * (Double(i) - px) + (Double(j) - py) * (Double(j) - py)
-                        let k2 = exp(-d2 / (2 * sigma2 * sigma2))
-                        let k = j * gw + i
-                        w2[k] += k2; x2[k] += k2 * g.dx; y2[k] += k2 * g.dy
-                        if d2 < 9 * sigma1 * sigma1 {
-                            let k1 = exp(-d2 / (2 * sigma1 * sigma1))
-                            w1[k] += k1; x1[k] += k1 * g.dx; y1[k] += k1 * g.dy
-                        }
-                    }
-                }
-            }
-            // Near grains, theirs; further out, a wider average of them.
-            var dx = w1, dy = w1
-            for k in 0..<(gw * gh) {
-                let wa = w1[k], wb = 0.05 * w2[k]
-                let total = wa + wb
-                dx[k] = total > 1e-12 ? (x1[k] + 0.05 * x2[k]) / total : 0
-                dy[k] = total > 1e-12 ? (y1[k] + 0.05 * y2[k]) / total : 0
-            }
-            return (dx, dy)
-        }
-        let forward = flow(grainsA, t), backward = flow(grainsB, 1 - t)
-        func at(_ field: [Double], _ x: Double, _ y: Double) -> Double {
-            let f = Field(values: field, w: gw, h: gh, x0: gx0, y0: gy0, step: coarse)
-            return f.sample(min(max(x, gx0), gx0 + Double(gw - 1) * coarse), min(max(y, gy0), gy0 + Double(gh - 1) * coarse), outside: 0)
-        }
-        // The frame, finely, about the moving centre.
-        let step = 1 / fieldPixelsPerEm
-        let x0 = reach.0, y0 = reach.1
-        let w = Int(((reach.2 - reach.0) / step).rounded(.up)) + 1, h = Int(((reach.3 - reach.1) / step).rounded(.up)) + 1
-        var values = [Double](repeating: 0, count: w * h)
+        let forward = flow(grainsA, along: t, gx0, gy0, gw, gh, coarse)
+        let backward = flow(grainsB, along: 1 - t, gx0, gy0, gw, gh, coarse)
         // The start's field leads until the two have nearly met, then hands
         // over: blended while they still lie apart, both would show.
         let u = min(max((t - 0.35) / 0.55, 0), 1)
         let blend = u * u * (3 - 2 * u)
-        for j in 0..<h {
-            let y = y0 + Double(j) * step
-            for i in 0..<w {
-                let x = x0 + Double(i) * step
-                // Back along the flow to where this point was in each end.
-                let ax = x - t * at(forward.dx, x, y), ay = y - t * at(forward.dy, x, y)
-                let bx = x - (1 - t) * at(backward.dx, x, y), by = y - (1 - t) * at(backward.dy, x, y)
-                let da = a.distance(ax + centreA.0, ay + centreA.1)
-                let db = b.distance(bx + centreB.0, by + centreB.1)
-                values[j * w + i] = (1 - blend) * da + blend * db
+        /// The frame's field at (x, y), about the moving centre: back along
+        /// the flow to where the point was in each end, and blended. Raw
+        /// buffers: this runs for every sample near the edge, every frame.
+        let fdx = forward.dx, fdy = forward.dy, bdx = backward.dx, bdy = backward.dy
+        let fieldA = a, fieldB = b
+        let ca = centreA, cb = centreB
+        func value(_ x: Double, _ y: Double) -> Double {
+            let fx = min(max((x - gx0) / coarse, 0), Double(gw - 1)), fy = min(max((y - gy0) / coarse, 0), Double(gh - 1))
+            let i = min(Int(fx), gw - 2), j = min(Int(fy), gh - 2)
+            let p = fx - Double(i), q = fy - Double(j)
+            let k = j * gw + i
+            let w00 = (1 - p) * (1 - q), w10 = p * (1 - q), w01 = (1 - p) * q, w11 = p * q
+            var total = 0.0
+            if blend < 1 {
+                let (ux, uy) = fdx.withUnsafeBufferPointer { dx in fdy.withUnsafeBufferPointer { dy in
+                    (dx[k] * w00 + dx[k + 1] * w10 + dx[k + gw] * w01 + dx[k + gw + 1] * w11,
+                     dy[k] * w00 + dy[k + 1] * w10 + dy[k + gw] * w01 + dy[k + gw + 1] * w11)
+                } }
+                total += (1 - blend) * fieldA.distance(x - t * ux + ca.0, y - t * uy + ca.1)
+            }
+            if blend > 0 {
+                let (vx, vy) = bdx.withUnsafeBufferPointer { dx in bdy.withUnsafeBufferPointer { dy in
+                    (dx[k] * w00 + dx[k + 1] * w10 + dx[k + gw] * w01 + dx[k + gw + 1] * w11,
+                     dy[k] * w00 + dy[k + 1] * w10 + dy[k + gw] * w01 + dy[k + gw + 1] * w11)
+                } }
+                total += blend * fieldB.distance(x - (1 - t) * vx + cb.0, y - (1 - t) * vy + cb.1)
+            }
+            return total
+        }
+        // Coarse first, four fine steps a sample; fine only near the edge,
+        // where a coarse cell's corners come within its size of zero. (The
+        // field is about a distance, so further out the sign can't change.)
+        let step = 1 / fieldPixelsPerEm, ratio = 4
+        let x0 = reach.0, y0 = reach.1
+        let cw = Int(((reach.2 - reach.0) / (step * Double(ratio))).rounded(.up)) + 2
+        let ch = Int(((reach.3 - reach.1) / (step * Double(ratio))).rounded(.up)) + 2
+        var rough = [Double](repeating: 0, count: cw * ch)
+        for j in 0..<ch {
+            for i in 0..<cw { rough[j * cw + i] = value(x0 + Double(i * ratio) * step, y0 + Double(j * ratio) * step) }
+        }
+        let w = (cw - 1) * ratio + 1, h = (ch - 1) * ratio + 1
+        var values = [Double](repeating: 0, count: w * h)
+        let near = 1.5 * step * Double(ratio)
+        for cj in 0..<(ch - 1) {
+            for ci in 0..<(cw - 1) {
+                let v00 = rough[cj * cw + ci], v10 = rough[cj * cw + ci + 1]
+                let v01 = rough[(cj + 1) * cw + ci], v11 = rough[(cj + 1) * cw + ci + 1]
+                let exact = min(min(abs(v00), abs(v10)), min(abs(v01), abs(v11))) < near
+                for dj in 0...ratio {
+                    for di in 0...ratio {
+                        let k = (cj * ratio + dj) * w + ci * ratio + di
+                        if exact {
+                            values[k] = value(x0 + Double(ci * ratio + di) * step, y0 + Double(cj * ratio + dj) * step)
+                        } else {
+                            let p = Double(di) / Double(ratio), q = Double(dj) / Double(ratio)
+                            values[k] = (v00 * (1 - p) + v10 * p) * (1 - q) + (v01 * (1 - p) + v11 * p) * q
+                        }
+                    }
+                }
             }
         }
         // Back from about the centre to the frame the ends were given in.
@@ -142,55 +156,139 @@ final class TransportMorph: @unchecked Sendable {
     }
 }
 
+/// The grains' displacements at `along` of the way, spread on a `gw` by
+/// `gh` grid from (`gx0`, `gy0`), `cell` apart: each grain splatted where it
+/// is now, then blurred twice (separably) and the two mixed, near grains
+/// counting most.
+private func flow(_ grains: [(x: Double, y: Double, dx: Double, dy: Double)], along: Double,
+                  _ gx0: Double, _ gy0: Double, _ gw: Int, _ gh: Int, _ cell: Double) -> (dx: [Double], dy: [Double]) {
+    var w = [Double](repeating: 0, count: gw * gh), x = w, y = w
+    for g in grains {
+        let px = min(max((g.x + g.dx * along - gx0) / cell, 0), Double(gw - 1) - 1e-9)
+        let py = min(max((g.y + g.dy * along - gy0) / cell, 0), Double(gh - 1) - 1e-9)
+        let i = Int(px), j = Int(py), p = px - Double(i), q = py - Double(j)
+        for (k, weight) in [(j * gw + i, (1 - p) * (1 - q)), (j * gw + i + 1, p * (1 - q)),
+                            (j * gw + i + gw, (1 - p) * q), (j * gw + i + gw + 1, p * q)] {
+            w[k] += weight; x[k] += weight * g.dx; y[k] += weight * g.dy
+        }
+    }
+    func blurred(_ v: [Double], _ sigma: Double) -> [Double] {
+        let r = Int((3 * sigma).rounded(.up))
+        let kernel = (-r...r).map { exp(-Double($0 * $0) / (2 * sigma * sigma)) }
+        var tmp = [Double](repeating: 0, count: gw * gh), out = tmp
+        for j in 0..<gh {
+            for i in 0..<gw {
+                var sum = 0.0
+                for d in max(-r, -i)...min(r, gw - 1 - i) { sum += kernel[d + r] * v[j * gw + i + d] }
+                tmp[j * gw + i] = sum
+            }
+        }
+        for j in 0..<gh {
+            for i in 0..<gw {
+                var sum = 0.0
+                for d in max(-r, -j)...min(r, gh - 1 - j) { sum += kernel[d + r] * tmp[(j + d) * gw + i] }
+                out[j * gw + i] = sum
+            }
+        }
+        return out
+    }
+    let w1 = blurred(w, 2), x1 = blurred(x, 2), y1 = blurred(y, 2)
+    let w2 = blurred(w, 5), x2 = blurred(x, 5), y2 = blurred(y, 5)
+    var dx = w, dy = w
+    for k in 0..<(gw * gh) {
+        let total = w1[k] + 0.05 * w2[k]
+        dx[k] = total > 1e-12 ? (x1[k] + 0.05 * x2[k]) / total : 0
+        dy[k] = total > 1e-12 ? (y1[k] + 0.05 * y2[k]) / total : 0
+    }
+    return (dx, dy)
+}
+
 /// The entropic transport plan between equal grains `a` and `b` (each with
 /// mass 1/count), with blur `epsilon` (squared ems), by Sinkhorn's
-/// iterations in the log domain, annealed from a wide blur down to it. For
-/// each grain of `a`, the mean of where its mass goes in `b`; for each of
-/// `b`, the mean of where its mass came from.
+/// iterations in the log domain, annealed from a wide blur down to it, each
+/// stage until its potentials settle. For each grain of `a`, the mean of
+/// where its mass goes in `b`; for each of `b`, the mean of where its mass
+/// came from.
+///
+/// Vectorised with Accelerate, in single precision: the potentials settle
+/// to well within a grain's spacing.
 func transport(_ a: [(Double, Double)], _ b: [(Double, Double)], epsilon: Double)
     -> (forward: [(Double, Double)], backward: [(Double, Double)]) {
     let n = a.count, m = b.count
-    var cost = [Double](repeating: 0, count: n * m)
+    // The costs both ways round, so rows and columns are each contiguous.
+    var cost = [Float](repeating: 0, count: n * m), costT = cost
     for i in 0..<n {
         for j in 0..<m {
-            let dx = a[i].0 - b[j].0, dy = a[i].1 - b[j].1
-            cost[i * m + j] = dx * dx + dy * dy
+            let dx = Float(a[i].0 - b[j].0), dy = Float(a[i].1 - b[j].1)
+            let c = dx * dx + dy * dy
+            cost[i * m + j] = c
+            costT[j * n + i] = c
         }
     }
-    let logA = log(1 / Double(n)), logB = log(1 / Double(m))
-    var f = [Double](repeating: 0, count: n), g = [Double](repeating: 0, count: m)
-    var eps = max(epsilon, cost.max()! / 4)
-    var row = [Double](repeating: 0, count: max(n, m))
-    while true {
-        for _ in 0..<40 {
-            // f_i = eps (log a_i - logsumexp_j (g_j - C_ij) / eps)
-            for i in 0..<n {
-                var top = -Double.infinity
-                for j in 0..<m { row[j] = (g[j] - cost[i * m + j]) / eps; top = max(top, row[j]) }
-                var sum = 0.0
-                for j in 0..<m { sum += exp(row[j] - top) }
-                f[i] = eps * (logA - (top + log(sum)))
-            }
-            for j in 0..<m {
-                var top = -Double.infinity
-                for i in 0..<n { row[i] = (f[i] - cost[i * m + j]) / eps; top = max(top, row[i]) }
-                var sum = 0.0
-                for i in 0..<n { sum += exp(row[i] - top) }
-                g[j] = eps * (logB - (top + log(sum)))
+    let logA = Float(log(1 / Double(n))), logB = Float(log(1 / Double(m)))
+    var f = [Float](repeating: 0, count: n), g = [Float](repeating: 0, count: m)
+    var scratch = [Float](repeating: 0, count: max(n, m))
+    var largest: Float = 0
+    vDSP_maxv(cost, 1, &largest, vDSP_Length(n * m))
+    let target = Float(epsilon)
+    var eps = max(target, largest / 4)
+    /// One half step: for each row r of `costs` (length `len`), out[r] =
+    /// eps (logMass - logsumexp_k (other[k] - costs[r, k]) / eps).
+    func halfStep(_ costs: [Float], _ other: [Float], _ out: inout [Float], rows: Int, len: Int, logMass: Float) -> Float {
+        var change: Float = 0
+        let inverse = 1 / eps
+        costs.withUnsafeBufferPointer { c in
+            other.withUnsafeBufferPointer { o in
+                scratch.withUnsafeMutableBufferPointer { s in
+                    let s = s.baseAddress!
+                    var count = Int32(len)
+                    for r in 0..<rows {
+                        // (other - cost_r) / eps
+                        vDSP_vsub(c.baseAddress! + r * len, 1, o.baseAddress!, 1, s, 1, vDSP_Length(len))
+                        var scale = inverse
+                        vDSP_vsmul(s, 1, &scale, s, 1, vDSP_Length(len))
+                        var top: Float = 0
+                        vDSP_maxv(s, 1, &top, vDSP_Length(len))
+                        var shift = -top
+                        vDSP_vsadd(s, 1, &shift, s, 1, vDSP_Length(len))
+                        vvexpf(s, s, &count)
+                        var sum: Float = 0
+                        vDSP_sve(s, 1, &sum, vDSP_Length(len))
+                        let value = eps * (logMass - (top + log(sum)))
+                        change = max(change, abs(value - out[r]))
+                        out[r] = value
+                    }
+                }
             }
         }
-        if eps <= epsilon { break }
-        eps = max(epsilon, eps / 3)
+        return change
+    }
+    while true {
+        // Each stage until its potentials move by under a hundredth of the
+        // blur (the last, a thousandth), or long enough.
+        let last = eps <= target
+        let tolerance = eps * (last ? 1e-3 : 1e-2)
+        for _ in 0..<(last ? 200 : 60) {
+            let df = halfStep(cost, g, &f, rows: n, len: m, logMass: logA)
+            let dg = halfStep(costT, f, &g, rows: m, len: n, logMass: logB)
+            if max(df, dg) < tolerance { break }
+        }
+        if last { break }
+        eps = max(target, eps / 4)
     }
     // The plan P_ij = exp((f_i + g_j - C_ij) / eps), read row by row and
     // column by column.
     var forward = [(Double, Double)](repeating: (0, 0), count: n)
     var backward = [(Double, Double)](repeating: (0, 0), count: m)
     var colX = [Double](repeating: 0, count: m), colY = colX, colW = colX
+    var row = [Float](repeating: 0, count: m)
+    var count = Int32(m)
     for i in 0..<n {
+        for j in 0..<m { row[j] = (f[i] + g[j] - cost[i * m + j]) / eps }
+        vvexpf(&row, row, &count)
         var sx = 0.0, sy = 0.0, sw = 0.0
         for j in 0..<m {
-            let p = exp((f[i] + g[j] - cost[i * m + j]) / eps)
+            let p = Double(row[j])
             sx += p * b[j].0; sy += p * b[j].1; sw += p
             colX[j] += p * a[i].0; colY[j] += p * a[i].1; colW[j] += p
         }

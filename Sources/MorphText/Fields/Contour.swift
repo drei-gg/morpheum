@@ -11,19 +11,22 @@ struct Field {
     let x0: Double, y0: Double, step: Double
 
     /// The value at (x, y), bilinear between samples; `outside` beyond the grid.
+    @inline(__always)
     func sample(_ x: Double, _ y: Double, outside: Double) -> Double {
         let fx = (x - x0) / step, fy = (y - y0) / step
         if !(fx >= 0 && fy >= 0 && fx <= Double(w - 1) && fy <= Double(h - 1)) { return outside }
         let i = min(Int(fx), w - 2), j = min(Int(fy), h - 2)
         let u = fx - Double(i), v = fy - Double(j)
-        let a = values[j * w + i], b = values[j * w + i + 1]
-        let c = values[(j + 1) * w + i], d = values[(j + 1) * w + i + 1]
-        return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v
+        return values.withUnsafeBufferPointer { values in
+            let k = j * w + i
+            return (values[k] * (1 - u) + values[k + 1] * u) * (1 - v) + (values[k + w] * (1 - u) + values[k + w + 1] * u) * v
+        }
     }
 
     /// A signed distance at (x, y): sampled within the grid, and beyond it
     /// the grid's nearest value plus how far beyond (about right for a
     /// distance field whose shape is inside the grid).
+    @inline(__always)
     func distance(_ x: Double, _ y: Double) -> Double {
         let cx = min(max(x, x0), x0 + Double(w - 1) * step)
         let cy = min(max(y, y0), y0 + Double(h - 1) * step)
