@@ -134,14 +134,11 @@ from font files. Letters pair up by a weighted edit distance (`Ruby` slides
 into `bRuby`; `Amethyst` keeps its `t`), and each pair's contours are sampled,
 matched (fills with fills, holes with holes) and aligned by rotation, scale
 and starting point, then interpolated in polar form. A letter with no partner
-grows from, or shrinks into, the place of its neighbour, steadily across the
-whole morph, so `Send`'s spare letters visibly fold into the paper plane.
-(morphnext collapses them within the first tenth; `MorphOutlinePlan`'s
-`collapse: .morphnext` does the same.)
+grows from, or shrinks into, the place of its neighbour.
 
 The geometry is a port of morphnext's, checked against it: the tests plan
-the same letter pairs from the same font files as morphnext 0.7.1 and, with
-its collapse, must draw the same shapes. The tests run on macOS and the iOS simulator.
+the same letter pairs from the same font files as morphnext 0.7.1 and must
+draw the same shapes. The tests run on macOS and the iOS simulator.
 
 ## Demo
 
