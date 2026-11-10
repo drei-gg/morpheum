@@ -22,6 +22,10 @@ struct WordLayout: @unchecked Sendable {
         /// Its outline in ems (x from the pen, y down from the baseline);
         /// nil for a space, or a glyph with no outline (a colour emoji).
         let outline: MorphOutline?
+        /// The font and letter, to keep its strokes by; nil for art.
+        var strokeKey: String? = nil
+        /// The family of the font that drew it; nil for art.
+        var family: String? = nil
     }
 
     /// How far above the baseline, in ems, a letter missing from this layout
@@ -113,7 +117,9 @@ struct WordLayout: @unchecked Sendable {
                 }
             }
             let outline = (try? MorphOutline(path: path)) ?? nil
-            return Letter(character: characters[k], pen: first.position.x, em: em, outline: outline)
+            return Letter(character: characters[k], pen: first.position.x, em: em, outline: outline,
+                          strokeKey: strokeCacheKey(first.font, characters[k]),
+                          family: CTFontCopyFamilyName(first.font) as String)
         }
     }
 

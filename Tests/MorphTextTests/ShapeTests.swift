@@ -107,7 +107,7 @@ import Testing
     let square = MorphContent.shape(CGPath(rect: CGRect(x: 10, y: 10, width: 40, height: 40), transform: nil), size: CGSize(width: 60, height: 60))
 
     @Test func aShapeIntoAShape() throws {
-        let morph = TextMorph(from: ring, to: square)
+        let morph = TextMorph(from: ring, to: square, engine: .outline)
         #expect(morph.whole == nil)
         let plan = try #require(morph.pairs.first?.plan)
         // The ring's hole closes as it squares up.
@@ -119,8 +119,8 @@ import Testing
     }
 
     @Test func aWordIntoAShapeIsOneShape() throws {
-        let morph = TextMorph(from: .text("Go", style: .system(size: 40, weight: .bold)), to: ring)
-        let whole = try #require(morph.whole)
+        let morph = TextMorph(from: .text("Go", style: .system(size: 40, weight: .bold)), to: ring, engine: .outline)
+        let whole = try #require(morph.whole?.plan)
         #expect(whole.contourCount >= 3)
     }
 

@@ -86,6 +86,7 @@ public struct MorphBetween: View, Animatable {
 
     @State private var store = TextMorphStore()
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.morphEngine) private var engine
 
     /// The morph from `from` to `to`, at `progress`.
     public init(from: MorphContent, to: MorphContent, progress: Double) {
@@ -105,7 +106,7 @@ public struct MorphBetween: View, Animatable {
     }
 
     public var body: some View {
-        let morph = store.morph(from.kind, to.kind, scale: displayScale)
+        let morph = store.morph(from.kind, to.kind, scale: displayScale, engine: engine)
         // A spring may carry it a quarter past either end; anything further
         // is that end.
         let raw = progress.isFinite ? progress : 0
@@ -139,13 +140,15 @@ public struct MorphBetween: View, Animatable {
 @MainActor
 final class TextMorphStore {
     private var morph: TextMorph?
-    private var key: (MorphContent.Kind, MorphContent.Kind, CGFloat)?
+    private var key: (MorphContent.Kind, MorphContent.Kind, CGFloat, MorphEngine)?
 
-    func morph(_ from: MorphContent.Kind, _ to: MorphContent.Kind, scale: CGFloat) -> TextMorph {
-        if let morph, let key, key == (from, to, scale) { return morph }
-        let morph = TextMorph(from: from, to: to, scale: scale)
+    func morph(_ from: MorphContent.Kind, _ to: MorphContent.Kind, scale: CGFloat, engine: MorphEngine) -> TextMorph {
+        if let morph, let key, key == (from, to, scale, engine) { return morph }
+        let morph = TextMorph(from: from, to: to, scale: scale, engine: engine)
+        // Usually built at rest, a moment before it moves.
+        morph.prepareInBackground()
         self.morph = morph
-        key = (from, to, scale)
+        key = (from, to, scale, engine)
         return morph
     }
 }

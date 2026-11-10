@@ -71,6 +71,9 @@ private struct Host: View {
     private func host(_ model: Switch) -> (NSWindow, NSHostingView<Host>) {
         let view = NSHostingView(rootView: Host(model: model))
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 300, height: 120), styleMask: [.borderless], backing: .buffered, defer: false)
+        // Swift owns it: closing must not release it too (a crash in the
+        // window's close animation, now and then).
+        window.isReleasedWhenClosed = false
         window.contentView = view
         window.orderFrontRegardless()
         return (window, view)
@@ -86,7 +89,8 @@ private struct Host: View {
         defer { window.close() }
         await wait(0.2)
         model.content = .symbol("checkmark", size: 30, weight: .semibold)
-        await wait(1)
+        // A 0.6 s morph; other suites share the main actor, so give it time.
+        for _ in 0..<50 where model.ends == 0 { await wait(0.1) }
         #expect(model.ends == 1)
     }
 

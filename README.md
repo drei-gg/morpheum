@@ -1,17 +1,18 @@
 # MorphText for Swift
 
-Text that morphs letter by letter, outline into outline. A light word turns
-heavy, a serif word turns rounded, a small title grows and loosens, one word
-becomes another, and a word flows into an SF Symbol, all as one shape, with
-plain text (or the symbol itself) at either end.
+Text that morphs letter by letter. A light word turns heavy, a serif word
+turns rounded, a small title grows and loosens, one word becomes another,
+and a word gathers into an SF Symbol, with plain text (or the symbol itself)
+at either end. Letters change shape as outlines or as strokes, whichever
+suits each pair.
 
 The Swift sibling of [morphtext](https://github.com/drei-gg/morphtext) for
 Flutter. SwiftUI, iOS 17 and macOS 14, Swift Package Manager.
 
 > Early: text into text (any weight, size, spacing or font), text into and
-> out of SF Symbols and your own vector shapes, and an implicit
-> `AnimatedMorph` work, with tests on macOS and iOS. Not published: it lives
-> in the Seven and Done apps first.
+> out of SF Symbols and your own vector shapes, an implicit `AnimatedMorph`,
+> and outline and stroke engines work, with tests on macOS and iOS. Not
+> published: it lives in the Seven and Done apps first.
 
 ```swift
 import MorphText
@@ -99,6 +100,41 @@ and centred, as SVG does by default) and fill rules. Anything in `<defs>`,
 left out as decoration, so draw shadows and highlights yourself, over the
 morph. One shape, one colour: the art's own colours are ignored.
 
+## Outlines and strokes
+
+Letters change shape one of two ways:
+
+- **Outlines** (`.outline`): each letter's outline morphs into its
+  partner's, point for point. Exact at both ends and best for one letter at
+  another weight, where every counter stays put. Between two different
+  letters the sides of a stroke can drift apart, so a letter smears thicker
+  than either end, and pieces with no partner shrink away almost at once:
+  `Send`'s `end` is gone a tenth of the way into the paper plane.
+- **Strokes** (`.strokes`): each letter is traced to its centrelines, a
+  width at every point, and each stroke bends, turns and thins into its
+  partner along its length. Nothing in flight is thicker than the thicker
+  end; serifs ride their stems; a stroke with no partner draws back into the
+  stroke it joins. A word gathering into a symbol does that in turn: the
+  word's spare strokes draw in over the first half, the symbol's draw out
+  over the second, so a word visibly folds into the shape it becomes. The
+  strokes miss a letter's square corners, so those grow back as it lands.
+- **Auto** (`.auto`, the default) picks per letter pair, and once for a
+  word and a symbol: outlines for the same letter at another weight, for a
+  shape filling in or hollowing out and for solid shapes; strokes for one
+  letter into another; and outlines whenever the strokes wouldn't land on
+  the glyph within a percent and a half (a gear's teeth), so nothing jumps
+  as it comes to rest.
+
+```swift
+MorphBetween(from: send, to: plane, progress: t)
+    .morphEngine(.strokes)      // for everything inside
+```
+
+Tracing takes a few milliseconds a letter (about 35 ms for `Send` into a
+paper plane, optimised, on an Intel Mac VM), so `MorphBetween` plans on a
+background queue as soon as its ends are known, and each letter is traced
+once per font whatever it morphs into.
+
 ## Styles
 
 A SwiftUI `Font` can't be read back as an outline, so each end takes a
@@ -123,6 +159,9 @@ let size = morph.size(at: t)
 shapeLayer.path = morph.path(at: t, in: size)   // fill non-zero
 ```
 
+`TextMorph(…, engine:)` takes the engine; `prepareInBackground()` plans off
+the main thread.
+
 Underneath, `MorphOutline` reads any `CGPath` and `MorphOutlinePlan` morphs
 one outline into another.
 
@@ -136,15 +175,23 @@ matched (fills with fills, holes with holes) and aligned by rotation, scale
 and starting point, then interpolated in polar form. A letter with no partner
 grows from, or shrinks into, the place of its neighbour.
 
-The geometry is a port of morphnext's, checked against it: the tests plan
-the same letter pairs from the same font files as morphnext 0.7.1 and must
-draw the same shapes. The tests run on macOS and the iOS simulator.
+The outline geometry is a port of morphnext's, checked against it: the
+tests plan the same letter pairs from the same font files as morphnext 0.7.1
+and must draw the same shapes. The stroke engine is a port of the Flutter
+package's (its `strokes` branch): each glyph is filled into pixels, thinned
+to its medial axis in order of distance from the edge, read as a graph of
+lines and pruned of spurs, then each point is moved to the true middle of
+its stroke and given its exact width against the outline. Strokes pair at
+least cost (Kuhn–Munkres), turn as a whole (Procrustes), and are glued at
+their joints, slimmed where they overlap and carried with what they hang
+from. The tests run on macOS and the iOS simulator.
 
 ## Demo
 
-On a Mac, `swift run MorphTextDemo`: six morphs (weight, words, fonts, size,
-a word into a symbol, a symbol into a symbol), a spring and a scrubber, and
-below them a Save button and a bookmark switch built on `AnimatedMorph`.
+On a Mac, `swift run MorphTextDemo`: seven morphs (weight, words, fonts,
+size, two words into symbols, a symbol into a symbol), an engine switch, a
+spring and a scrubber, and below them a Save button and a bookmark switch
+built on `AnimatedMorph`.
 `MorphText.swift` has Xcode previews too.
 
 ## License and attribution

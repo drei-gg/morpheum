@@ -18,15 +18,33 @@ import SwiftUI
 ///
 /// Coordinates are points in a box of `size(at:)`, y down, each end centred
 /// in it as it grows or shrinks.
-public final class TextMorph {
+///
+/// Planning (`prepare()`) may run on any thread, once; draw a frame from
+/// one thread at a time.
+public final class TextMorph: @unchecked Sendable {
+    // @unchecked: planning holds `lock`; drawing is one thread's at a time.
     /// One letter of the start becoming one of the end. Either may be
     /// missing, for a letter that shrinks away or grows in.
     struct Pair {
         let from: Int?
         let to: Int?
-        /// Nil for a letter with no outline (a space), or one that couldn't
-        /// be planned.
+        /// Nil for a letter with no outline (a space), one that couldn't be
+        /// planned, or one drawn as strokes.
         let plan: MorphOutlinePlan?
+        /// The morph between their strokes, when strokes draw it (in place of
+        /// `plan`).
+        var strokes: StrokeMorph? = nil
+        /// What the strokes miss of the start's letter (its corners), and of
+        /// the end's: grown back as the morph leaves one and reaches the other.
+        var cornersFrom = Corners.none, cornersTo = Corners.none
+    }
+
+    /// How a word and a single glyph morph as one: as outlines or as
+    /// strokes, and what the strokes miss of each end.
+    struct Whole {
+        var plan: MorphOutlinePlan?
+        var strokes: StrokeMorph?
+        var corners = (Corners.none, Corners.none)
     }
 
     let a: WordLayout
@@ -34,31 +52,42 @@ public final class TextMorph {
     /// Whether a single glyph at one end (a symbol, a shape) gathers every
     /// letter of the other.
     let converge: Bool
+    /// How letters change shape.
+    public let engine: MorphEngine
     private var _pairs: [Pair]?
-    private var _whole: MorphOutlinePlan??
+    private var _whole: Whole??
+    private let lock = NSRecursiveLock()
 
     /// The morph from `text` in `from` to `toText` in `to`.
-    public convenience init(_ text: String, from: MorphStyle, to toText: String, in to: MorphStyle) {
-        self.init(WordLayout(text, style: from.geometry), WordLayout(toText, style: to.geometry))
+    public convenience init(_ text: String, from: MorphStyle, to toText: String, in to: MorphStyle,
+                            engine: MorphEngine = .auto) {
+        self.init(WordLayout(text, style: from.geometry), WordLayout(toText, style: to.geometry), engine: engine)
     }
 
     /// The morph from `from` to `to`, text or symbols, for a screen of
     /// `displayScale` pixels per point (where a symbol's pixels fall).
     @MainActor
-    public convenience init(from: MorphContent, to: MorphContent, displayScale: CGFloat = 2) {
-        self.init(from: from.kind, to: to.kind, scale: displayScale)
+    public convenience init(from: MorphContent, to: MorphContent, displayScale: CGFloat = 2,
+                            engine: MorphEngine = .auto) {
+        self.init(from: from.kind, to: to.kind, scale: displayScale, engine: engine)
     }
 
     @MainActor
-    convenience init(from: MorphContent.Kind, to: MorphContent.Kind, scale: CGFloat) {
-        self.init(from.layout(scale: scale), to.layout(scale: scale), converge: from.isGlyph || to.isGlyph)
+    convenience init(from: MorphContent.Kind, to: MorphContent.Kind, scale: CGFloat, engine: MorphEngine = .auto) {
+        self.init(from.layout(scale: scale), to.layout(scale: scale), converge: from.isGlyph || to.isGlyph,
+                  engine: engine)
     }
 
-    init(_ a: WordLayout, _ b: WordLayout, converge: Bool = false) {
+    init(_ a: WordLayout, _ b: WordLayout, converge: Bool = false, engine: MorphEngine = .auto) {
         self.a = a
         self.b = b
         self.converge = converge
+        self.engine = engine
     }
+
+    /// Whether a word gathers into a single glyph here (or one opens into
+    /// a word), as one shape.
+    var gathers: Bool { converge && (a.letters.count == 1) != (b.letters.count == 1) }
 
     /// The start's text.
     public var fromText: String { a.text }
@@ -76,33 +105,98 @@ public final class TextMorph {
 
     /// Each letter pair, planned on first use.
     var pairs: [Pair] {
+        lock.lock()
+        defer { lock.unlock() }
         if let _pairs { return _pairs }
         let characters = (a.letters.map(\.character), b.letters.map(\.character))
         let aligned = converge ? convergeLetters(characters.0, characters.1) : alignLetters(characters.0, characters.1)
+        // A word gathering into a glyph morphs as one (`whole`); its letters
+        // only stand in until then, as outlines.
+        let engine = gathers ? .outline : self.engine
         let pairs = aligned.map { i, j in
-            let outlineA = i.flatMap { a.letters[$0].outline }
-            let outlineB = j.flatMap { b.letters[$0].outline }
             // Alone, a letter morphs into itself, and the box shrinks or grows it.
-            let plan: MorphOutlinePlan? = switch (i, j) {
-            case (.some, .some): outlineA.flatMap { x in outlineB.flatMap { try? MorphOutlinePlan(from: x, to: $0) } }
-            case (.some, nil): outlineA.flatMap { try? MorphOutlinePlan(from: $0, to: $0) }
-            case (nil, .some): outlineB.flatMap { try? MorphOutlinePlan(from: $0, to: $0) }
-            case (nil, nil): nil
+            switch (i, j) {
+            case let (i?, j?): letterPair(i, j, a.letters[i], b.letters[j], engine: engine)
+            case let (i?, nil): letterPair(i, nil, a.letters[i], a.letters[i], engine: engine, alone: true)
+            case let (nil, j?): letterPair(nil, j, b.letters[j], b.letters[j], engine: engine, alone: true)
+            case (nil, nil): Pair(from: nil, to: nil, plan: nil)
             }
-            return Pair(from: i, to: j, plan: plan)
         }
         _pairs = pairs
         return pairs
+    }
+
+    /// One letter into another by `engine`: its outlines, or its strokes
+    /// (outlines when it has no strokes to trace), or, for auto, whichever
+    /// morphs it better. A letter alone shrinks or grows as its own outline,
+    /// or its own strokes.
+    private func letterPair(_ i: Int?, _ j: Int?, _ x: WordLayout.Letter, _ y: WordLayout.Letter,
+                            engine: MorphEngine, alone: Bool = false) -> Pair {
+        guard let outlineA = x.outline, let outlineB = y.outline else { return Pair(from: i, to: j, plan: nil) }
+        func outlines() -> MorphOutlinePlan? { try? MorphOutlinePlan(from: outlineA, to: outlineB) }
+        // Each end traced once (art has no font to keep its strokes by).
+        var traced: (StrokeGlyph, StrokeGlyph)??
+        func glyphs() -> (StrokeGlyph, StrokeGlyph)? {
+            if let traced { return traced }
+            let ga = StrokeCache.shared.glyph(x.strokeKey, outlineA)
+            let gb = alone ? ga : StrokeCache.shared.glyph(y.strokeKey, outlineB)
+            let both = ga.flatMap { a in gb.map { (a, $0) } }
+            traced = .some(both)
+            return both
+        }
+        func strokes() -> StrokeMorph? { glyphs().map { StrokeMorph($0.0, $0.1) } }
+        func drawn(_ strokes: StrokeMorph) -> Pair {
+            var pair = Pair(from: i, to: j, plan: nil, strokes: strokes)
+            if !alone, let (ga, gb) = glyphs() {
+                pair.cornersFrom = StrokeCache.shared.corners(x.strokeKey, outlineA, ga)
+                pair.cornersTo = StrokeCache.shared.corners(y.strokeKey, outlineB, gb)
+            }
+            return pair
+        }
+        switch engine {
+        case .outline:
+            return Pair(from: i, to: j, plan: outlines())
+        case .strokes:
+            if let strokes = strokes() { return drawn(strokes) }
+            return Pair(from: i, to: j, plan: outlines())
+        case .auto:
+            // Alone, or the same letter in the same family at another weight:
+            // outlines keep its counters, and have every time it was measured.
+            if alone || (x.character == y.character && x.family != nil && x.family == y.family) {
+                return Pair(from: i, to: j, plan: outlines())
+            }
+            guard let plan = outlines() else { return Pair(from: i, to: j, plan: nil) }
+            let from = outlineA.polygons, to = outlineB.polygons
+            // A shape filling in or hollowing out, or a solid one: outlines.
+            // The same letter in another font: whichever morphs it better,
+            // leaning to outlines. Any other pair: strokes, which measured
+            // better in all but a handful of hundreds.
+            if keepsOutlines(from, to) { return Pair(from: i, to: j, plan: plan) }
+            guard let strokes = strokes() else { return Pair(from: i, to: j, plan: plan) }
+            if x.character != y.character || strokesWin(plan, strokes, from, to, same: true) {
+                // As long as the strokes are the letters at rest: one that
+                // doesn't trace closely (a gear's teeth) would land with a jump.
+                let pair = drawn(strokes)
+                if landsTrue(strokes, (pair.cornersFrom, pair.cornersTo), from, to) { return pair }
+            }
+            return Pair(from: i, to: j, plan: plan)
+        }
     }
 
     /// When a word gathers into a symbol (or a symbol opens into a word): the
     /// whole of each end as one outline, each letter where its line puts it,
     /// in units of the larger em from the end's top left. Nil otherwise, or
     /// when either end has nothing to draw.
-    var whole: MorphOutlinePlan? {
+    ///
+    /// As outlines, or as strokes (by `engine`; for auto, whichever morphs it
+    /// better: a word gathering into a solid shape fills in better as
+    /// outlines).
+    var whole: Whole? {
+        lock.lock()
+        defer { lock.unlock() }
         if let _whole { return _whole }
-        var plan: MorphOutlinePlan?
-        if converge, (a.letters.count == 1) != (b.letters.count == 1) {
+        var whole: Whole?
+        if gathers {
             let unit = max(a.em, b.em)
             func shape(_ layout: WordLayout) -> MorphOutline? {
                 let parts = layout.letters.compactMap { letter -> MorphOutline? in
@@ -112,17 +206,47 @@ public final class TextMorph {
                 return (try? MorphOutline.combine(parts)) ?? nil
             }
             if let from = shape(a), let to = shape(b) {
-                plan = try? MorphOutlinePlan(from: from, to: to)
+                let plan = try? MorphOutlinePlan(from: from, to: to)
+                var strokes: StrokeMorph?
+                var corners = (Corners.none, Corners.none)
+                // For auto, a word gathering into a solid shape (or one filling
+                // in) fills in better as outlines: no need to trace it.
+                if engine == .strokes || (engine == .auto && !keepsOutlines(from.polygons, to.polygons)),
+                   let ga = StrokeGlyph.trace(from.polygons, ascender: 0),
+                   let gb = StrokeGlyph.trace(to.polygons, ascender: 0) {
+                    strokes = StrokeMorph(ga, gb, gather: true)
+                    // One morph for the whole word, so it's worth judging by its
+                    // frames.
+                    if engine == .auto, let plan, let candidate = strokes,
+                       !strokesWin(plan, candidate, from.polygons, to.polygons) {
+                        strokes = nil
+                    }
+                    if let candidate = strokes {
+                        corners = (Corners.of(from.polygons, ga), Corners.of(to.polygons, gb))
+                        if engine == .auto, !landsTrue(candidate, corners, from.polygons, to.polygons) {
+                            strokes = nil
+                            corners = (Corners.none, Corners.none)
+                        }
+                    }
+                }
+                whole = strokes != nil ? Whole(plan: nil, strokes: strokes, corners: corners) : plan.map { Whole(plan: $0) }
             }
         }
-        _whole = .some(plan)
-        return plan
+        _whole = .some(whole)
+        return whole
     }
 
     /// Plans every pair now rather than on the first frame between the ends.
     public func prepare() {
-        _ = pairs
         _ = whole
+        _ = pairs
+    }
+
+    /// Plans every pair on a background queue, so a morph that starts later
+    /// finds it done: tracing letters to strokes takes a few milliseconds a
+    /// letter. A frame asked for meanwhile waits for it.
+    public func prepareInBackground() {
+        DispatchQueue.global(qos: .userInitiated).async { self.prepare() }
     }
 
     /// Where each end's line sits in a box of `size`: its top left.
@@ -139,23 +263,48 @@ public final class TextMorph {
     public func path(at t: Double, in size: CGSize) -> CGPath {
         let path = CGMutablePath()
         let (originA, originB) = origins(in: size)
+        // The share of each end over which a letter drawn as strokes grows its
+        // corners back, or loses them.
+        let cornering = 0.2
+        func ease(_ x: Double) -> Double { x * x * (3 - 2 * x) }
+        let arriving = ease(min(max((t - (1 - cornering)) / cornering, 0), 1))
+        let leaving = 1 - ease(min(max(t / cornering, 0), 1))
+        // Strokes and the corners they miss, as one fill: discs wound as the
+        // outlines' fills are, so overlaps add up.
+        func draw(_ strokes: StrokeMorph, _ corners: (Corners, Corners), origin: CGPoint, em: CGFloat) {
+            for line in strokes.at(t) { addStroke(path, line, origin: origin, scale: em) }
+            // Each corner rides the stroke it belongs to.
+            for (c, grown, end) in [(corners.0, leaving, false), (corners.1, arriving, true)] {
+                if grown <= 0 || c.pieces.isEmpty { continue }
+                let anchors = strokes.anchors(ObjectIdentifier(c), c.middles, end: end)
+                c.add(to: path, origin: origin, size: em, grown: grown) { n in
+                    strokes.drift(anchors[n].track, anchors[n].point, end: end)
+                }
+            }
+        }
         if let whole {
             // One shape, carried from one end's place in the box to the other's.
             let unit = max(a.em, b.em)
-            var output = whole.allocateOutput()
-            whole.interpolate(t, into: &output)
-            let transform = CGAffineTransform(
-                a: unit, b: 0, c: 0, d: unit,
-                tx: originA.x + (originB.x - originA.x) * t,
-                ty: originA.y + (originB.y - originA.y) * t
-            )
-            for points in output { addPolygon(points, to: path, transform: transform, spacing: 0.1) }
+            let origin = CGPoint(x: originA.x + (originB.x - originA.x) * t, y: originA.y + (originB.y - originA.y) * t)
+            if let strokes = whole.strokes {
+                draw(strokes, whole.corners, origin: origin, em: unit)
+            } else if let plan = whole.plan {
+                var output = plan.allocateOutput()
+                plan.interpolate(t, into: &output)
+                let transform = CGAffineTransform(a: unit, b: 0, c: 0, d: unit, tx: origin.x, ty: origin.y)
+                for points in output { addPolygon(points, to: path, transform: transform, spacing: 0.1) }
+            }
             return path
         }
         let pairs = self.pairs
         for k in pairs.indices {
             let pair = pairs[k]
-            guard let plan = pair.plan, let placement = placement(k, pair, t, originA, originB) else { continue }
+            guard let placement = placement(k, pair, t, originA, originB) else { continue }
+            if let strokes = pair.strokes {
+                draw(strokes, (pair.cornersFrom, pair.cornersTo), origin: placement.pen, em: placement.em)
+                continue
+            }
+            guard let plan = pair.plan else { continue }
             var output = plan.allocateOutput()
             plan.interpolate(t, into: &output)
             let transform = CGAffineTransform(
@@ -176,7 +325,7 @@ public final class TextMorph {
         let pairs = self.pairs
         return pairs.indices.compactMap { k in
             let pair = pairs[k]
-            guard pair.plan == nil, let placement = placement(k, pair, t, originA, originB) else { return nil }
+            guard pair.plan == nil, pair.strokes == nil, let placement = placement(k, pair, t, originA, originB) else { return nil }
             let nearer = t < 0.5 ? pair.from.map { (a, $0) } : pair.to.map { (b, $0) }
             guard let (layout, index) = nearer else { return nil }
             let character = layout.letters[index].character

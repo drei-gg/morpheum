@@ -85,7 +85,7 @@ import Testing
         #expect(abs(end.minX - (originB.x + inkB.minX)) < 0.5)
         #expect(abs(end.maxX - (originB.x + inkB.maxX)) < 0.5)
         #expect(morph.pairs.count == 5)
-        #expect(morph.pairs.allSatisfy { $0.plan != nil })
+        #expect(morph.pairs.allSatisfy { $0.plan != nil || $0.strokes != nil })
     }
 
     @Test func aLongerWordGrowsItsExtraLetter() {
@@ -102,12 +102,13 @@ import Testing
             TextMorph("Morphing text", from: .system(size: 40, weight: .light),
                       to: "Into new words", in: .system(size: 40, weight: .heavy)).prepare()
         }
-        // Thirteen letter pairs: about 25 ms optimised (on an Intel Mac VM);
-        // a debug build is some twenty times slower.
+        // Thirteen letter pairs, most of them traced to strokes: about 90 ms
+        // optimised (on an Intel Mac VM), outlines alone about 25; a debug
+        // build is some sixty times slower.
         #if DEBUG
-        let budget = Duration.seconds(3)
+        let budget = Duration.seconds(12)
         #else
-        let budget = Duration.milliseconds(150)
+        let budget = Duration.milliseconds(300)
         #endif
         #expect(elapsed < budget, "planning took \(elapsed)")
     }

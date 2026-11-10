@@ -26,6 +26,9 @@ let pairs: [Pair] = [
     Pair(id: "Send",
          from: .text("Send", style: .system(size: 56, weight: .semibold, color: .blue)),
          to: .symbol("paperplane.fill", size: 56, weight: .semibold, color: .blue)),
+    Pair(id: "Save",
+         from: .text("Save", style: .system(size: 56, weight: .semibold, color: .blue)),
+         to: .symbol("checkmark", size: 56, weight: .semibold, color: .blue)),
     Pair(id: "Symbols",
          from: .symbol("heart", size: 72, color: .pink),
          to: .symbol("star.fill", size: 72, color: .orange)),
@@ -74,6 +77,7 @@ struct ControlsRow: View {
 struct DemoView: View {
     @State private var selected = pairs[0].id
     @State private var progress = 0.0
+    @State private var engine = MorphEngine.auto
 
     var body: some View {
         let pair = pairs.first { $0.id == selected }!
@@ -83,6 +87,15 @@ struct DemoView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+
+            Picker("Engine", selection: $engine) {
+                Text("Auto").tag(MorphEngine.auto)
+                Text("Strokes").tag(MorphEngine.strokes)
+                Text("Outlines").tag(MorphEngine.outline)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 280)
 
             MorphBetween(from: pair.from, to: pair.to, progress: progress)
                 .frame(height: 120)
@@ -100,6 +113,7 @@ struct DemoView: View {
             Divider()
             ControlsRow()
         }
+        .morphEngine(engine)
         .padding(32)
         .frame(minWidth: 640)
         .onChange(of: selected) { progress = 0 }

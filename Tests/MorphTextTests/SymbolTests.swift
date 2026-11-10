@@ -50,6 +50,7 @@ import Testing
         // What the morph draws as its first frame, on the same pixels.
         let firstFrame = try pixels(
             MorphBetween(from: .symbol(name, size: 48, color: .black), to: .text("x", style: .system(size: 48)), progress: 1e-9)
+                .morphEngine(.outline)
                 .frame(width: 100, height: 80)
         )
         // SwiftUI places a symbol's ink by up to 3/4 of a point differently
@@ -110,9 +111,10 @@ import Testing
     @Test func aWordGathersIntoASymbolAsOneShape() throws {
         let morph = TextMorph(
             from: .text("Send it", style: .system(size: 40, weight: .semibold)),
-            to: .symbol("paperplane.fill", size: 40, weight: .semibold)
+            to: .symbol("paperplane.fill", size: 40, weight: .semibold),
+            engine: .outline
         )
-        let whole = try #require(morph.whole)
+        let whole = try #require(morph.whole?.plan)
         // Every letter's contours (S, e, n, d, i's two, t) into the plane's.
         #expect(whole.contourCount >= 7)
         #expect(morph.lettersAsText(at: 0.5, in: morph.size(at: 0.5)).isEmpty)
@@ -125,7 +127,7 @@ import Testing
     }
 
     @Test func oneSymbolIntoAnother() throws {
-        let morph = TextMorph(from: .symbol("heart", size: 40), to: .symbol("heart.fill", size: 40))
+        let morph = TextMorph(from: .symbol("heart", size: 40), to: .symbol("heart.fill", size: 40), engine: .outline)
         #expect(morph.whole == nil)
         #expect(morph.pairs.count == 1)
         let plan = try #require(morph.pairs[0].plan)
