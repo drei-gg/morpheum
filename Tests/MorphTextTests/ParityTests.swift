@@ -44,7 +44,7 @@ import Testing
         let reference = Self.cases[index]
         let from = try Self.outline(reference.from, reference.fromChar)
         let to = try Self.outline(reference.to, reference.toChar)
-        let plan = try MorphOutlinePlan(from: from, to: to)
+        let plan = try MorphOutlinePlan(from: from, to: to, collapse: .morphnext)
         let name = "\(reference.fromChar)→\(reference.toChar)"
         #expect(plan.contourCount == reference.pairs, "\(name)")
         #expect(plan.isOneToOne == reference.oneToOne, "\(name)")

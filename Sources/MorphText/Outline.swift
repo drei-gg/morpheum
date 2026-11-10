@@ -133,9 +133,10 @@ public struct MorphOutline: Sendable {
 public struct MorphOutlinePlan: Sendable {
     let plan: MorphPlan
 
-    /// Plans the morph from `from` to `to`.
-    public init(from: MorphOutline, to: MorphOutline) throws {
-        plan = try MorphPlan(from: from.shape, to: to.shape)
+    /// Plans the morph from `from` to `to`; `collapse` is how contours left
+    /// over leave or arrive.
+    public init(from: MorphOutline, to: MorphOutline, collapse: MorphCollapse = .gradual) throws {
+        plan = try MorphPlan(from: from.shape, to: to.shape, collapse: collapse)
     }
 
     /// How many contour pairs the morph draws.

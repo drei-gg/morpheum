@@ -117,6 +117,70 @@ private func hausdorff(_ a: CGPath, _ b: CGPath) -> Double {
     }
 }
 
+/// What a spare contour (one with no partner) does on its way out.
+@Suite struct Collapsing {
+    /// `extra` beside a unit square at the origin, as one outline.
+    private func withSpare(_ extra: CGPath) throws -> MorphOutline {
+        let path = CGMutablePath()
+        path.addPath(square(0, 0, 1))
+        path.addPath(extra, transform: CGAffineTransform(translationX: 4, y: 0))
+        return try #require(try MorphOutline(path: path))
+    }
+
+    /// Each contour's box at `t`, keyed by whether it sits right of x = 1.5
+    /// at the start, so the spare is told from the square that stays.
+    private func spareBoxes(_ plan: MorphOutlinePlan, at t: Double) -> [CGRect] {
+        var start = plan.allocateOutput(), output = plan.allocateOutput()
+        plan.interpolate(0, into: &start)
+        plan.interpolate(t, into: &output)
+        return output.indices.filter { centroid(start[$0]).x > 1.5 }.map { index in
+            let xs = stride(from: 0, to: output[index].count, by: 2).map { output[index][$0] }
+            let ys = stride(from: 1, to: output[index].count, by: 2).map { output[index][$0] }
+            return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+        }
+    }
+
+    @Test func aSpareShrinksSteadilyIntoItsPlace() throws {
+        let from = try withSpare(square(0, 0, 1))
+        let to = try #require(try MorphOutline(path: square(0, 0, 1)))
+        let plan = try MorphOutlinePlan(from: from, to: to)
+        // Halfway it is half its size, halfway to the square's centre.
+        let half = try #require(spareBoxes(plan, at: 0.5).first)
+        #expect(abs(half.width - 0.5) < 1e-6 && abs(half.midX - 2.5) < 1e-6 && abs(half.midY - 0.5) < 1e-6)
+        // Past the end it stays a point instead of turning inside out.
+        let past = try #require(spareBoxes(plan, at: 1.2).first)
+        #expect(past.width < 1e-9 && abs(past.midX - 0.5) < 1e-6)
+    }
+
+    @Test func morphnextsCollapseIsQuick() throws {
+        let from = try withSpare(square(0, 0, 1))
+        let to = try #require(try MorphOutline(path: square(0, 0, 1)))
+        let plan = try MorphOutlinePlan(from: from, to: to, collapse: .morphnext)
+        #expect(try #require(spareBoxes(plan, at: 0.5).first).width < 0.01)
+    }
+
+    @Test func aSpareLettersCounterShrinksWithIt() throws {
+        let from = try withSpare(ring())
+        let to = try #require(try MorphOutline(path: square(0, 0, 1)))
+        let plan = try MorphOutlinePlan(from: from, to: to)
+        /// The counter's box in units of the ring's.
+        func counter(at t: Double) -> CGRect {
+            let boxes = spareBoxes(plan, at: t).sorted { $0.width > $1.width }
+            let (ring, hole) = (boxes[0], boxes[1])
+            return CGRect(x: (hole.minX - ring.minX) / ring.width, y: (hole.minY - ring.minY) / ring.height,
+                          width: hole.width / ring.width, height: hole.height / ring.height)
+        }
+        let start = counter(at: 0)
+        for t in stride(from: 0.1, through: 0.9, by: 0.1) {
+            #expect(spareBoxes(plan, at: t).count == 2)
+            // Both scale about one point, so the counter keeps its place in
+            // the ring, and its share of the ring's size.
+            let now = counter(at: t)
+            #expect(abs(now.minX - start.minX) + abs(now.minY - start.minY) + abs(now.width - start.width) < 1e-6, "at \(t)")
+        }
+    }
+}
+
 /// An outline's sampled points as a path.
 private func outlinePath(_ outline: MorphOutline) -> CGPath {
     let path = CGMutablePath()

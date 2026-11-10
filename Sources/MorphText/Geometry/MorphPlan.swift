@@ -44,6 +44,20 @@ struct MorphPlanItem: Sendable {
     var blockOffset: Point2?
     /// Linear correction that makes block transport exact at t = 1.
     var blockDrift: Point2?
+    /// A collapsed side that shrinks (or grows) steadily across the whole
+    /// morph, toward its point, without turning: `MorphCollapse.gradual`.
+    var gradual = false
+}
+
+/// How a contour with no partner leaves its shape, or arrives in the other.
+public enum MorphCollapse: Sendable {
+    /// It shrinks steadily into its place across the whole morph (or grows
+    /// from it), so a word's spare letters visibly fold into the shape they
+    /// join. A letter's counter shrinks with its letter.
+    case gradual
+    /// As morphnext does it: almost all of the way gone within the first
+    /// tenth of the morph (or grown in the last).
+    case morphnext
 }
 
 /// A reusable interpolation plan between two filled shapes.
@@ -52,27 +66,59 @@ struct MorphPlan: Sendable {
 
     /// Plans the morph from `source` to `target`: contours paired by role
     /// (fill or hole) at least cost, each pair aligned by rotation, scale and
-    /// starting point.
-    init(from source: MorphShape, to target: MorphShape) throws {
+    /// starting point. Contours left over collapse as `collapse` says.
+    init(from source: MorphShape, to target: MorphShape, collapse: MorphCollapse = .gradual) throws {
         try validateShapes(source, target)
+        let pairs = matchContours(source, target)
+        let unmatchedSource = Set(pairs.filter { $0.1 == nil }.compactMap(\.0))
+        let unmatchedTarget = Set(pairs.filter { $0.0 == nil }.compactMap(\.1))
+        /// Whether an unmatched contour collapses gradually, and to where. A
+        /// fill always can. A hole can when its parent collapses too: both
+        /// head for the parent's point, scaling about it as one, so the hole
+        /// stays inside. Any other hole goes quickly, before its parent's own
+        /// motion can carry it out.
+        func departure(_ index: Int, _ shape: MorphShape, _ unmatched: Set<Int>, _ other: MorphShape) -> (Bool, Point2) {
+            let contour = shape.contours[index]
+            guard collapse == .gradual else { return (false, collapsePoint(contour, shape, other)) }
+            if !contour.isHole { return (true, collapsePoint(contour, shape, other)) }
+            if let parent = contour.parent, unmatched.contains(parent) {
+                return (true, collapsePoint(shape.contours[parent], shape, other))
+            }
+            return (false, collapsePoint(contour, shape, other))
+        }
         var items: [MorphPlanItem] = []
-        for (sourceIndex, targetIndex) in matchContours(source, target) {
+        for (sourceIndex, targetIndex) in pairs {
             let pointCount = pairPointCount(source, target, sourceIndex, targetIndex)
             let length = 2 * pointCount
-            let sourcePoints = try sourceIndex.map { try pointsAtCardinality(source, $0, pointCount) }
-                ?? collapsedPoints(length, collapsePoint(target.contours[targetIndex!], target, source))
-            let targetPoints = try targetIndex.map { try pointsAtCardinality(target, $0, pointCount) }
-                ?? collapsedPoints(length, collapsePoint(source.contours[sourceIndex!], source, target))
+            var gradual = false
+            let sourcePoints: [Double]
+            if let sourceIndex {
+                sourcePoints = try pointsAtCardinality(source, sourceIndex, pointCount)
+            } else {
+                let (steady, point) = departure(targetIndex!, target, unmatchedTarget, source)
+                gradual = steady
+                sourcePoints = collapsedPoints(length, point)
+            }
+            let targetPoints: [Double]
+            if let targetIndex {
+                targetPoints = try pointsAtCardinality(target, targetIndex, pointCount)
+            } else {
+                let (steady, point) = departure(sourceIndex!, source, unmatchedSource, target)
+                gradual = steady
+                targetPoints = collapsedPoints(length, point)
+            }
             let alignment = alignPair(
                 sourcePoints,
                 targetPoints,
                 allowTargetReversal: target.fillRule == .evenOdd
             )
-            items.append(createItem(
+            var item = createItem(
                 alignment,
                 sourceCollapsed: sourceIndex == nil,
                 targetCollapsed: targetIndex == nil
-            ))
+            )
+            if gradual { makeGradual(&item) }
+            items.append(item)
         }
         if items.count > 1, items.allSatisfy({ !$0.sourceCollapsed && !$0.targetCollapsed }) {
             applyGlobalAlignment(&items)
@@ -583,7 +629,23 @@ private func applyGlobalAlignment(_ items: inout [MorphPlanItem]) {
     }
 }
 
+/// A collapsed side as a plain homothety toward its point: no turn, no
+/// exponential scale, so at t its size is 1 - t (leaving) or t (arriving),
+/// and its centre travels in step.
+private func makeGradual(_ item: inout MorphPlanItem) {
+    item.theta = 0
+    item.logScale = 0
+    item.gradual = true
+    for i in stride(from: 0, to: item.orientedTarget.count, by: 2) {
+        item.targetInSourceFrame[i] = item.orientedTarget[i] - item.targetCentroid.x
+        item.targetInSourceFrame[i + 1] = item.orientedTarget[i + 1] - item.targetCentroid.y
+    }
+}
+
 private func interpolateItem(_ item: MorphPlanItem, _ t: Double, _ output: inout [Double]) {
+    // Past either end a gradual collapse stays put: a point stays a point
+    // rather than turning inside out.
+    let t = item.gradual ? min(max(t, 0), 1) : t
     let scale = exp(item.logScale * t)
     let angle = item.theta * t
     let cosine = cos(angle) * scale
