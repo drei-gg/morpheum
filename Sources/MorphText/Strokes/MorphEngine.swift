@@ -21,6 +21,18 @@ public enum MorphEngine: Sendable, Hashable {
     /// over the first half, the symbol's over the second.
     case strokes
 
+    /// Field into field, experimental: each end is a distance field, the
+    /// two are carried toward each other's place and size, what only the
+    /// start has drains into the end and what only the end has fills in.
+    /// Every frame is one clean outline, but the two ends read as overlaid
+    /// rather than one becoming the other.
+    case fields
+
+    /// Ink as mass, experimental: carried the cheapest way from one shape to
+    /// the other (optimal transport), each end warped along that flow and
+    /// blended, so the start's letters slide and merge into the end.
+    case transport
+
     /// Each letter pair (or a word and a symbol, as one) as whichever of
     /// `outline` and `strokes` morphs it better: strokes take a letter into
     /// a different one; outlines keep the counters of a weight change, and

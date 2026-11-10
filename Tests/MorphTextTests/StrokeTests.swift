@@ -117,3 +117,24 @@ private func letter(_ character: String, weight: Font.Weight = .regular) throws 
     }
 }
 
+
+@Suite struct Transporting {
+    @MainActor
+    @Test func aWordFlowsIntoASymbolAndLandsOnIt() throws {
+        let morph = TextMorph(from: .text("Save", style: .system(size: 40, weight: .semibold)),
+                              to: .symbol("checkmark", size: 40, weight: .semibold), engine: .transport)
+        let whole = try #require(morph.whole)
+        #expect(whole.flow != nil)
+        // At either end, the field's outline is the end's own, within a hair.
+        func box(_ t: Double) -> CGRect { morph.path(at: t, in: morph.size(at: t)).boundingBoxOfPath }
+        let (originA, originB) = morph.origins(in: morph.size(at: 0))
+        let ink = CTLineGetImageBounds(morph.a.line!, nil)
+        #expect(abs(box(0).minX - (originA.x + ink.minX)) < 0.5 && abs(box(0).width - ink.width) < 1)
+        _ = originB
+        // In flight, ink: never nothing, never torn into specks.
+        for t in [0.25, 0.5, 0.75] {
+            let path = morph.path(at: t, in: morph.size(at: t))
+            #expect(!path.isEmpty, "at \(t)")
+        }
+    }
+}

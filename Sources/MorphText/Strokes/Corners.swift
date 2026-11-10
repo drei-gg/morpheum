@@ -100,6 +100,22 @@ final class Corners: Sendable {
         return Corners(pieces)
     }
 
+    /// The pieces in ems, each grown to `grown` of its size (0...1) about its
+    /// middle and moved by `drift` (in ems, by the piece's index).
+    func polygons(grown: Double, drift: ((Int) -> (Double, Double))? = nil) -> [[Double]] {
+        if grown <= 0 { return [] }
+        return pieces.enumerated().map { n, piece in
+            let (dx, dy) = drift?(n) ?? (0, 0)
+            let cx = piece.centre.x / Self.scale, cy = piece.centre.y / Self.scale
+            var out = piece.points
+            for i in stride(from: 0, to: out.count, by: 2) {
+                out[i] = dx + cx + (out[i] / Self.scale - cx) * grown
+                out[i + 1] = dy + cy + (out[i + 1] / Self.scale - cy) * grown
+            }
+            return out
+        }
+    }
+
     /// Each piece's middle, in ems.
     var middles: [(Double, Double)] { pieces.map { ($0.centre.x / Self.scale, $0.centre.y / Self.scale) } }
 

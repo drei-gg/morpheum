@@ -34,6 +34,10 @@ public final class TextMorph: @unchecked Sendable {
         /// The morph between their strokes, when strokes draw it (in place of
         /// `plan`).
         var strokes: StrokeMorph? = nil
+        /// The fields' morph, when fields draw it.
+        var field: FieldMorph? = nil
+        /// The transport morph, when it draws it.
+        var flow: TransportMorph? = nil
         /// What the strokes miss of the start's letter (its corners), and of
         /// the end's: grown back as the morph leaves one and reaches the other.
         var cornersFrom = Corners.none, cornersTo = Corners.none
@@ -44,6 +48,8 @@ public final class TextMorph: @unchecked Sendable {
     struct Whole {
         var plan: MorphOutlinePlan?
         var strokes: StrokeMorph?
+        var field: FieldMorph?
+        var flow: TransportMorph?
         var corners = (Corners.none, Corners.none)
     }
 
@@ -84,6 +90,11 @@ public final class TextMorph: @unchecked Sendable {
         self.converge = converge
         self.engine = engine
     }
+
+    /// Whether stroke frames go through `cleanedInk` in flight. Off: it
+    /// seals only gaps narrower than its radius, and the tears that show
+    /// are wider.
+    static let cleansStrokes = false
 
     /// Whether a word gathers into a single glyph here (or one opens into
     /// a word), as one shape.
@@ -153,8 +164,25 @@ public final class TextMorph: @unchecked Sendable {
             }
             return pair
         }
+        func fields() -> Pair {
+            if let field = FieldMorph(from: outlineA.polygons, to: outlineB.polygons) {
+                var pair = Pair(from: i, to: j, plan: nil)
+                pair.field = field
+                return pair
+            }
+            return Pair(from: i, to: j, plan: outlines())
+        }
         switch engine {
         case .outline:
+            return Pair(from: i, to: j, plan: outlines())
+        case .fields:
+            return alone ? Pair(from: i, to: j, plan: outlines()) : fields()
+        case .transport:
+            if !alone, let flow = TransportMorph(from: outlineA.polygons, to: outlineB.polygons) {
+                var pair = Pair(from: i, to: j, plan: nil)
+                pair.flow = flow
+                return pair
+            }
             return Pair(from: i, to: j, plan: outlines())
         case .strokes:
             if let strokes = strokes() { return drawn(strokes) }
@@ -172,6 +200,8 @@ public final class TextMorph: @unchecked Sendable {
             // leaning to outlines. Any other pair: strokes, which measured
             // better in all but a handful of hundreds.
             if keepsOutlines(from, to) { return Pair(from: i, to: j, plan: plan) }
+            // Art whose pieces don't pair up (a QR glyph's squares into a
+            // logo's letters): matching leaves pieces to vanish; fields don't.
             guard let strokes = strokes() else { return Pair(from: i, to: j, plan: plan) }
             if x.character != y.character || strokesWin(plan, strokes, from, to, same: true) {
                 // As long as the strokes are the letters at rest: one that
@@ -205,7 +235,15 @@ public final class TextMorph: @unchecked Sendable {
                 }
                 return (try? MorphOutline.combine(parts)) ?? nil
             }
-            if let from = shape(a), let to = shape(b) {
+            if let from = shape(a), let to = shape(b), engine == .transport,
+               let flow = TransportMorph(from: from.polygons, to: to.polygons) {
+                whole = Whole(plan: nil, strokes: nil, field: nil, flow: flow)
+            } else if let from = shape(a), let to = shape(b), engine == .fields,
+               let field = FieldMorph(from: from.polygons, to: to.polygons) {
+                // A word gathering into a symbol: matching leaves most of the
+                // word to vanish or trail off; fields flow it in whole.
+                whole = Whole(plan: nil, strokes: nil, field: field)
+            } else if let from = shape(a), let to = shape(b) {
                 let plan = try? MorphOutlinePlan(from: from, to: to)
                 var strokes: StrokeMorph?
                 var corners = (Corners.none, Corners.none)
@@ -287,7 +325,24 @@ public final class TextMorph: @unchecked Sendable {
         let leaving = 1 - ease(min(max(t / cornering, 0), 1))
         // Strokes and the corners they miss, as one fill: discs wound as the
         // outlines' fills are, so overlaps add up.
+        func add(_ polygons: [[Double]], origin: CGPoint, em: CGFloat) {
+            let transform = CGAffineTransform(a: em, b: 0, c: 0, d: em, tx: origin.x, ty: origin.y)
+            for points in polygons { addPolygon(points, to: path, transform: transform) }
+        }
+        // In flight, a stroke frame is cleaned: joins that pull apart sealed,
+        // trailing hairlines taken out. Not at all at either end.
+        let cleaning = Self.cleansStrokes ? sin(Double.pi * min(max(t, 0), 1)) : 0
         func draw(_ strokes: StrokeMorph, _ corners: (Corners, Corners), origin: CGPoint, em: CGFloat) {
+            if cleaning > 1e-3 {
+                let lines = strokes.at(t)
+                var pieces: [[Double]] = []
+                for (c, grown, end) in [(corners.0, leaving, false), (corners.1, arriving, true)] where grown > 0 && !c.pieces.isEmpty {
+                    let anchors = strokes.anchors(ObjectIdentifier(c), c.middles, end: end)
+                    pieces += c.polygons(grown: grown) { n in strokes.drift(anchors[n].track, anchors[n].point, end: end) }
+                }
+                add(cleanedInk(lines, pieces, close: 0.03 * cleaning, open: 0.015 * cleaning), origin: origin, em: em)
+                return
+            }
             for line in strokes.at(t) { addStroke(path, line, origin: origin, scale: em) }
             // Each corner rides the stroke it belongs to.
             for (c, grown, end) in [(corners.0, leaving, false), (corners.1, arriving, true)] {
@@ -302,7 +357,11 @@ public final class TextMorph: @unchecked Sendable {
             // One shape, carried from one end's place in the box to the other's.
             let unit = max(a.em, b.em)
             let origin = CGPoint(x: originA.x + (originB.x - originA.x) * t, y: originA.y + (originB.y - originA.y) * t)
-            if let strokes = whole.strokes {
+            if let flow = whole.flow {
+                add(flow.polygons(at: t), origin: origin, em: unit)
+            } else if let field = whole.field {
+                add(field.polygons(at: t), origin: origin, em: unit)
+            } else if let strokes = whole.strokes {
                 draw(strokes, whole.corners, origin: origin, em: unit)
             } else if let plan = whole.plan {
                 var output = plan.allocateOutput()
@@ -318,6 +377,14 @@ public final class TextMorph: @unchecked Sendable {
             guard let placement = placement(k, pair, t, originA, originB) else { continue }
             if let strokes = pair.strokes {
                 draw(strokes, (pair.cornersFrom, pair.cornersTo), origin: placement.pen, em: placement.em)
+                continue
+            }
+            if let field = pair.field {
+                add(field.polygons(at: t), origin: placement.pen, em: placement.em)
+                continue
+            }
+            if let flow = pair.flow {
+                add(flow.polygons(at: t), origin: placement.pen, em: placement.em)
                 continue
             }
             guard let plan = pair.plan else { continue }
@@ -341,7 +408,7 @@ public final class TextMorph: @unchecked Sendable {
         let pairs = self.pairs
         return pairs.indices.compactMap { k in
             let pair = pairs[k]
-            guard pair.plan == nil, pair.strokes == nil, let placement = placement(k, pair, t, originA, originB) else { return nil }
+            guard pair.plan == nil, pair.strokes == nil, pair.field == nil, pair.flow == nil, let placement = placement(k, pair, t, originA, originB) else { return nil }
             let nearer = t < 0.5 ? pair.from.map { (a, $0) } : pair.to.map { (b, $0) }
             guard let (layout, index) = nearer else { return nil }
             let character = layout.letters[index].character
