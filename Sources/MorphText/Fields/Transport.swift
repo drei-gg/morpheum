@@ -25,12 +25,18 @@ final class TransportMorph: @unchecked Sendable {
     private let grainsB: [(x: Double, y: Double, dx: Double, dy: Double)]
     /// The grains' spacing, in ems.
     private let spacing: Double
+    /// How finely its fields and frames are sampled.
+    private let pixelsPerEm: Double
     private let reach: (Double, Double, Double, Double)
 
     /// The morph from `from` to `to` (closed polygons in ems, non-zero, in
     /// one frame); nil when either is empty.
-    init?(from: [[Double]], to: [[Double]], grainsPerEm: Double = 20) {
-        guard let fa = distanceField(of: from, pad: 0.12), let fb = distanceField(of: to, pad: 0.12) else { return nil }
+    /// Sampled at `pixelsPerEm`: about a screen pixel each, so an outline
+    /// as it lands is smooth (`pixelsPerEm(points:)`).
+    init?(from: [[Double]], to: [[Double]], grainsPerEm: Double = 20, pixelsPerEm: Double = fieldPixelsPerEm) {
+        guard let fa = distanceField(of: from, pad: 0.12, pixelsPerEm: pixelsPerEm),
+              let fb = distanceField(of: to, pad: 0.12, pixelsPerEm: pixelsPerEm) else { return nil }
+        self.pixelsPerEm = pixelsPerEm
         a = fa
         b = fb
         let s = 1 / grainsPerEm
@@ -122,7 +128,7 @@ final class TransportMorph: @unchecked Sendable {
         // Coarse first, four fine steps a sample; fine only near the edge,
         // where a coarse cell's corners come within its size of zero. (The
         // field is about a distance, so further out the sign can't change.)
-        let step = 1 / fieldPixelsPerEm, ratio = 4
+        let step = 1 / pixelsPerEm, ratio = 4
         let x0 = reach.0, y0 = reach.1
         let cw = Int(((reach.2 - reach.0) / (step * Double(ratio))).rounded(.up)) + 2
         let ch = Int(((reach.3 - reach.1) / (step * Double(ratio))).rounded(.up)) + 2
@@ -202,6 +208,11 @@ private func flow(_ grains: [(x: Double, y: Double, dx: Double, dy: Double)], al
     }
     return (dx, dy)
 }
+
+/// Field samples to the em for an em `points` across: two a point (on a
+/// 3x screen, an outline's chords are a pixel and a half, and its curves
+/// land smooth), and never fewer than 160.
+func pixelsPerEm(points: Double) -> Double { max(fieldPixelsPerEm, 2 * points) }
 
 /// The entropic transport plan between equal grains `a` and `b` (each with
 /// mass 1/count), with blur `epsilon` (squared ems), by Sinkhorn's

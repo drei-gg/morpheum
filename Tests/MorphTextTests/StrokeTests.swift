@@ -94,18 +94,26 @@ private func letter(_ character: String, weight: Font.Weight = .regular) throws 
         #expect(morph.pairs.allSatisfy { $0.plan != nil && $0.strokes == nil })
     }
 
-    @Test func autoTakesStrokesBetweenDifferentLetters() throws {
+    @Test func autoTransportsBetweenDifferentLetters() throws {
         let morph = TextMorph("Amethyst", from: .system(size: 48, weight: .medium),
                               to: "Citrine", in: .system(size: 48, weight: .medium))
-        #expect(morph.pairs.contains { $0.strokes != nil })
+        #expect(morph.pairs.contains { $0.flow != nil })
+        #expect(!morph.pairs.contains { $0.strokes != nil })
     }
 
     @MainActor
-    @Test func autoKeepsOutlinesWhenStrokesWouldLandWithAJump() throws {
-        // A gear's teeth don't trace closely enough to land true.
+    @Test func aGearLandsOnItsTeeth() throws {
+        // Strokes can't trace a gear's teeth closely; transport lands on the
+        // outline itself, within a fraction of a point.
         let morph = TextMorph(from: .symbol("gearshape.2", size: 48), to: .text("x", style: .system(size: 48)))
         #expect(morph.pairs.count == 1)
-        #expect(morph.pairs[0].plan != nil && morph.pairs[0].strokes == nil)
+        #expect(morph.pairs[0].flow != nil)
+        let outline = try #require(morph.a.letters[0].outline)
+        let size = morph.size(at: 0)
+        let (origin, _) = morph.origins(in: size)
+        let start = morph.path(at: 0, in: size).boundingBoxOfPath
+        let ink = outline.bounds
+        #expect(abs(start.minX - (origin.x + ink.minX * 48)) < 0.5 && abs(start.width - ink.width * 48) < 0.5)
     }
 
     @Test func planningInTheBackgroundIsThePlanning() async throws {
@@ -137,4 +145,26 @@ private func letter(_ character: String, weight: Font.Weight = .regular) throws 
             #expect(!path.isEmpty, "at \(t)")
         }
     }
+
+    @MainActor
+    @Test func autoTransportsAWordIntoASymbol() throws {
+        let morph = TextMorph(from: .text("Send", style: .system(size: 40, weight: .semibold)),
+                              to: .symbol("paperplane.fill", size: 40, weight: .semibold))
+        #expect(morph.engine == .auto)
+        #expect(try #require(morph.whole).flow != nil)
+    }
+
+    @Test func autoTransportsArtWhosePiecesDontPair() throws {
+        let rings = CGMutablePath()
+        for x in [0.0, 50] {
+            rings.addEllipse(in: CGRect(x: x, y: 0, width: 40, height: 40))
+            rings.addEllipse(in: CGRect(x: x + 10, y: 10, width: 20, height: 20))
+        }
+        let bar = CGPath(roundedRect: CGRect(x: 0, y: 10, width: 90, height: 20), cornerWidth: 6, cornerHeight: 6, transform: nil)
+        let morph = TextMorph(WordLayout(vector: rings.normalized(using: .evenOdd), name: "rings", box: CGSize(width: 90, height: 40), baseline: 40, em: 40),
+                              WordLayout(vector: bar, name: "bar", box: CGSize(width: 90, height: 40), baseline: 40, em: 40))
+        #expect(morph.pairs.count == 1)
+        #expect(morph.pairs[0].flow != nil)
+    }
 }
+

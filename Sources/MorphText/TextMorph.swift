@@ -164,6 +164,10 @@ public final class TextMorph: @unchecked Sendable {
             }
             return pair
         }
+        func transport() -> TransportMorph? {
+            TransportMorph(from: outlineA.polygons, to: outlineB.polygons,
+                           pixelsPerEm: pixelsPerEm(points: Double(max(x.em, y.em))))
+        }
         func fields() -> Pair {
             if let field = FieldMorph(from: outlineA.polygons, to: outlineB.polygons) {
                 var pair = Pair(from: i, to: j, plan: nil)
@@ -178,7 +182,7 @@ public final class TextMorph: @unchecked Sendable {
         case .fields:
             return alone ? Pair(from: i, to: j, plan: outlines()) : fields()
         case .transport:
-            if !alone, let flow = TransportMorph(from: outlineA.polygons, to: outlineB.polygons) {
+            if !alone, let flow = transport() {
                 var pair = Pair(from: i, to: j, plan: nil)
                 pair.flow = flow
                 return pair
@@ -194,20 +198,18 @@ public final class TextMorph: @unchecked Sendable {
                 return Pair(from: i, to: j, plan: outlines())
             }
             guard let plan = outlines() else { return Pair(from: i, to: j, plan: nil) }
-            let from = outlineA.polygons, to = outlineB.polygons
-            // A shape filling in or hollowing out, or a solid one: outlines.
-            // The same letter in another font: whichever morphs it better,
-            // leaning to outlines. Any other pair: strokes, which measured
-            // better in all but a handful of hundreds.
-            if keepsOutlines(from, to) { return Pair(from: i, to: j, plan: plan) }
-            // Art whose pieces don't pair up (a QR glyph's squares into a
-            // logo's letters): matching leaves pieces to vanish; fields don't.
-            guard let strokes = strokes() else { return Pair(from: i, to: j, plan: plan) }
-            if x.character != y.character || strokesWin(plan, strokes, from, to, same: true) {
-                // As long as the strokes are the letters at rest: one that
-                // doesn't trace closely (a gear's teeth) would land with a jump.
-                let pair = drawn(strokes)
-                if landsTrue(strokes, (pair.cornersFrom, pair.cornersTo), from, to) { return pair }
+            // A shape filling in or hollowing out, or a solid one: outlines
+            // fill it in place.
+            if keepsOutlines(outlineA.polygons, outlineB.polygons) { return Pair(from: i, to: j, plan: plan) }
+            // Anything else (one letter into another, a letter in another
+            // font, art whose pieces don't pair up) by transport: one clean
+            // outline every frame, nothing matched, so nothing to tear or
+            // seam. Strokes, the other way to morph unlike letters, tear
+            // where their pieces part and seam where they meet.
+            if let flow = transport() {
+                var pair = Pair(from: i, to: j, plan: nil)
+                pair.flow = flow
+                return pair
             }
             return Pair(from: i, to: j, plan: plan)
         }
@@ -235,8 +237,10 @@ public final class TextMorph: @unchecked Sendable {
                 }
                 return (try? MorphOutline.combine(parts)) ?? nil
             }
-            if let from = shape(a), let to = shape(b), engine == .transport,
-               let flow = TransportMorph(from: from.polygons, to: to.polygons) {
+            // A word gathering into a symbol, unless asked otherwise: by
+            // transport, the word flows into it whole, nothing left to vanish.
+            if let from = shape(a), let to = shape(b), engine == .transport || engine == .auto,
+               let flow = TransportMorph(from: from.polygons, to: to.polygons, pixelsPerEm: pixelsPerEm(points: Double(unit))) {
                 whole = Whole(plan: nil, strokes: nil, field: nil, flow: flow)
             } else if let from = shape(a), let to = shape(b), engine == .fields,
                let field = FieldMorph(from: from.polygons, to: to.polygons) {

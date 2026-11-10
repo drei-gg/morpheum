@@ -232,7 +232,7 @@ struct StrokeGlyph {
 
 /// A glyph's outline as its edges, binned on a grid, for the distance from
 /// any point to the nearest edge.
-private final class OutlineEdges {
+final class OutlineEdges: @unchecked Sendable {
     let cell: Double
     private var edges: [Double] = []
     private let x0: Double, y0: Double

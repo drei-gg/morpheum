@@ -85,7 +85,7 @@ import Testing
         #expect(abs(end.minX - (originB.x + inkB.minX)) < 0.5)
         #expect(abs(end.maxX - (originB.x + inkB.maxX)) < 0.5)
         #expect(morph.pairs.count == 5)
-        #expect(morph.pairs.allSatisfy { $0.plan != nil || $0.strokes != nil })
+        #expect(morph.pairs.allSatisfy { $0.plan != nil || $0.strokes != nil || $0.flow != nil })
     }
 
     @Test func aLongerWordGrowsItsExtraLetter() {

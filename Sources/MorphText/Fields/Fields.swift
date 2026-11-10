@@ -104,10 +104,25 @@ func cleanedInk(_ lines: [[Double]], _ polygons: [[Double]], close: Double, open
 
 /// The signed distance field of `polygons` (closed, ems, non-zero), in ems,
 /// over their box plus `pad` ems.
-func distanceField(of polygons: [[Double]], pad: Double) -> Field? {
-    guard let grid = inkMask([], polygons, pad: pad, pixelsPerEm: fieldPixelsPerEm) else { return nil }
+///
+/// Exact near the outline: read off a mask, a distance steps with the
+/// pixels, and the outline drawn from it comes out stair-stepped (on a
+/// splash mark, whose em is the whole mark, plainly so as the morph lands
+/// on it). Within a few pixels of the edge, each sample's distance is
+/// measured to the polygons' own edges instead.
+func distanceField(of polygons: [[Double]], pad: Double, pixelsPerEm: Double = fieldPixelsPerEm) -> Field? {
+    guard let grid = inkMask([], polygons, pad: pad, pixelsPerEm: pixelsPerEm) else { return nil }
     var field = signedDistance(grid.mask, grid.w, grid.h).map { $0 * grid.px }
-    soften(&field, grid.w, grid.h)
+    let edges = OutlineEdges(polygons, cell: 8 * grid.px)
+    let band = 3 * grid.px
+    for j in 0..<grid.h {
+        let y = grid.oy + (Double(j) + 0.5) * grid.px
+        for i in 0..<grid.w where abs(field[j * grid.w + i]) < band {
+            let x = grid.ox + (Double(i) + 0.5) * grid.px
+            let exact = edges.distance(x, y, band + grid.px)
+            field[j * grid.w + i] = grid.mask[j * grid.w + i] == 1 ? -exact : exact
+        }
+    }
     return Field(values: field, w: grid.w, h: grid.h, x0: grid.ox + 0.5 * grid.px, y0: grid.oy + 0.5 * grid.px, step: grid.px)
 }
 

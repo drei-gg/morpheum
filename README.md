@@ -103,7 +103,7 @@ morph. One shape, one colour: the art's own colours are ignored.
 
 ## Outlines and strokes
 
-Letters change shape one of two ways:
+Letters change shape one of three ways:
 
 - **Outlines** (`.outline`): each letter's outline morphs into its
   partner's, point for point. Exact at both ends and best for one letter at
@@ -119,12 +119,27 @@ Letters change shape one of two ways:
   word's spare strokes draw in over the first half, the symbol's draw out
   over the second, so a word visibly folds into the shape it becomes. The
   strokes miss a letter's square corners, so those grow back as it lands.
-- **Auto** (`.auto`, the default) picks per letter pair, and once for a
-  word and a symbol: outlines for the same letter at another weight, for a
-  shape filling in or hollowing out and for solid shapes; strokes for one
-  letter into another; and outlines whenever the strokes wouldn't land on
-  the glyph within a percent and a half (a gear's teeth), so nothing jumps
-  as it comes to rest.
+- **Transport** (`.transport`): ink as mass, carried the cheapest way from
+  one shape to the other (optimal transport). Each end is sampled as
+  grains, each grain's way to the other end is planned, each end's outline
+  is warped along that flow, and one hands over to the other as they meet.
+  Nothing is matched, so nothing is left over: `Save` bends and pours into
+  its tick, `Send` shears into the paper plane, a QR glyph's squares flow
+  into a logo. Every frame is one clean outline. About 20 ms to plan (in
+  the background) and 2 to 5 ms a frame.
+- **Auto** (`.auto`, the default) picks: outlines for the same letter at
+  another weight, for a shape filling in or hollowing out and for solid
+  shapes; transport for everything else (one letter into another, a word
+  gathering into a symbol, art whose pieces don't pair up). Strokes stay
+  available by name; they tear where a letter's pieces part and seam where
+  they meet, which transport can't.
+
+Matching engines (outlines, strokes) must make whatever has no partner
+vanish: a word's spare letters melt, or draw back and tear. That's why a
+word into a symbol goes by transport. Two more engines are in the package
+as experiments: `.fields` (one end drains into the other; clean, but they
+read as overlaid) and a cleanup pass for stroke frames (off: it seals only
+gaps narrower than the visible tears).
 
 ```swift
 MorphBetween(from: send, to: plane, progress: t)

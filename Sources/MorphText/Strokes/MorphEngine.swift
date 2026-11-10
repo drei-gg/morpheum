@@ -28,16 +28,19 @@ public enum MorphEngine: Sendable, Hashable {
     /// rather than one becoming the other.
     case fields
 
-    /// Ink as mass, experimental: carried the cheapest way from one shape to
-    /// the other (optimal transport), each end warped along that flow and
-    /// blended, so the start's letters slide and merge into the end.
+    /// Ink as mass, carried the cheapest way from one shape to the other
+    /// (optimal transport): each end sampled as grains, each grain's way to
+    /// the other end planned, each end's outline warped along that flow, and
+    /// one handed to the other as they meet. The start's letters slide and
+    /// merge into the end: nothing is made or lost, so nothing is left to
+    /// vanish or tear off. About 20 ms to plan and 2 to 5 ms a frame.
     case transport
 
-    /// Each letter pair (or a word and a symbol, as one) as whichever of
-    /// `outline` and `strokes` morphs it better: strokes take a letter into
-    /// a different one; outlines keep the counters of a weight change, and
-    /// fill a hollow symbol in place. The same letter in another font is
-    /// judged by measuring a few frames of each.
+    /// Each letter pair (or a word and a symbol, as one) as whichever morphs
+    /// it best: outlines for the same letter at another weight (every
+    /// counter kept) and a hollow shape filling in; transport for anything
+    /// else: one letter into another, a word gathering into a symbol, art
+    /// whose pieces don't pair up (a QR glyph into a logo).
     case auto
 }
 
