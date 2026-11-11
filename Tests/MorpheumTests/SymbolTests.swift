@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import SwiftUI
 import Testing
-@testable import MorphText
+@testable import Morpheum
 
 @MainActor
 @Suite struct Symbols {

@@ -1,7 +1,7 @@
 import CoreGraphics
 import CoreImage
 import Testing
-@testable import MorphText
+@testable import Morpheum
 
 @Suite struct QRCodes {
     @Test func itFindsTheThreeFinders() throws {

@@ -1,6 +1,6 @@
 import SwiftUI
 import Testing
-@testable import MorphText
+@testable import Morpheum
 
 @Suite struct Timeline {
     let save = MorphContent.text("Save", style: .system(size: 17, weight: .semibold))

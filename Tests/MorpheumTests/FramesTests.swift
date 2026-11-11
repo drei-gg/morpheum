@@ -4,7 +4,7 @@ import ImageIO
 import SwiftUI
 import Testing
 import UniformTypeIdentifiers
-@testable import MorphText
+@testable import Morpheum
 
 /// Renders `MorphText` through SwiftUI, the way an app draws it.
 @MainActor
@@ -65,10 +65,10 @@ import UniformTypeIdentifiers
     }
 }
 
-/// With MORPHTEXT_FRAMES set to a folder, writes the frames there side by
+/// With MORPHEUM_FRAMES set to a folder, writes the frames there side by
 /// side as a PNG, to look at.
 func saveStrip(_ frames: [CGImage], name: String) throws {
-    guard let folder = ProcessInfo.processInfo.environment["MORPHTEXT_FRAMES"] else { return }
+    guard let folder = ProcessInfo.processInfo.environment["MORPHEUM_FRAMES"] else { return }
     let width = frames.map(\.width).max()!
     let height = frames.map(\.height).reduce(0, +)
     let context = CGContext(

@@ -4,7 +4,7 @@
 
 Upstream: <https://github.com/KickNext/morphnext>, version 0.7.1.
 
-MorphText's outline geometry is ported to Swift from morphnext's
+Morpheum's outline geometry is ported to Swift from morphnext's
 `lib/src/geometry/shape.dart`, `resample.dart` and `morph_plan.dart`
 (arc-length sampling with corners kept, filled-outline topology, contour
 matching by role, FFT circular alignment, and polar interpolation), and its
@@ -73,7 +73,7 @@ SOFTWARE.
 
 ## Test fonts
 
-`Tests/MorphTextTests/Fixtures` bundles Fraunces (© 2020 The Fraunces
+`Tests/MorpheumTests/Fixtures` bundles Fraunces (© 2020 The Fraunces
 Project Authors) and Red Hat Display (© 2021 Red Hat, Inc., Reserved Font
 Name "Red Hat", included unmodified), both under the SIL Open Font License
 1.1; their licences sit beside them. They are used only by the tests.

@@ -160,7 +160,7 @@ public final class TextMorph: @unchecked Sendable {
             return pair(outlines())
         case .fields:
             return pair(alone ? outlines() : FieldMorph(from: outlineA.polygons, to: outlineB.polygons) ?? outlines())
-        case .transport:
+        case .ink:
             return pair(alone ? outlines() : transport() ?? outlines())
         case .strokes:
             return pair(strokes() ?? outlines())
@@ -209,7 +209,7 @@ public final class TextMorph: @unchecked Sendable {
                 func outlines() -> OutlineMorpher? { (try? MorphOutlinePlan(from: from, to: to)).map(OutlineMorpher.init) }
                 let morpher: (any Morpher)? = switch engine.builtIn {
                 case .outline: outlines()
-                case .transport, .auto:
+                case .ink, .auto:
                     TransportMorph(from: from.polygons, to: to.polygons, pixelsPerEm: pixelsPerEm(points: points)) ?? outlines()
                 case .fields: FieldMorph(from: from.polygons, to: to.polygons) ?? outlines()
                 case .strokes:

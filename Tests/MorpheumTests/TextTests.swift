@@ -2,7 +2,7 @@ import CoreText
 import Foundation
 import SwiftUI
 import Testing
-@testable import MorphText
+@testable import Morpheum
 
 @Suite struct Alignment {
     private func pairs(_ a: String, _ b: String) -> [String] {

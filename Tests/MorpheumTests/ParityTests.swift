@@ -2,7 +2,7 @@ import CoreGraphics
 import CoreText
 import Foundation
 import Testing
-@testable import MorphText
+@testable import Morpheum
 
 /// The port against the original: morphnext 0.7.1 (Dart) planned these
 /// letter pairs from the same font files and wrote out each frame

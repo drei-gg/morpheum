@@ -2,7 +2,7 @@ import CoreGraphics
 import CoreText
 import SwiftUI
 import Testing
-@testable import MorphText
+@testable import Morpheum
 
 /// A letter of the system font, as a layout's letter.
 private func letter(_ character: String, weight: Font.Weight = .regular) throws -> WordLayout.Letter {
@@ -130,7 +130,7 @@ private func letter(_ character: String, weight: Font.Weight = .regular) throws 
     @MainActor
     @Test func aWordFlowsIntoASymbolAndLandsOnIt() throws {
         let morph = TextMorph(from: .text("Save", style: .system(size: 40, weight: .semibold)),
-                              to: .symbol("checkmark", size: 40, weight: .semibold), engine: .transport)
+                              to: .symbol("checkmark", size: 40, weight: .semibold), engine: .ink)
         let whole = try #require(morph.whole)
         #expect(whole.flow != nil)
         // At either end, the field's outline is the end's own, within a hair.
@@ -192,7 +192,7 @@ private final class Swap: Morpher {
     @Test func anEngineOfYourOwnDrawsTheMorph() throws {
         let swap = MorphEngine.custom("swap") { from, to, _ in Swap(from, to) }
         let word = TextMorph("Ruby", from: .system(size: 40), to: "Opal", in: .system(size: 40, weight: .bold), engine: swap)
-        #expect(word.engine == swap && word.engine != .transport)
+        #expect(word.engine == swap && word.engine != .ink)
         #expect(word.pairs.allSatisfy { $0.morpher is Swap })
         // Halfway, a letter has shrunk to nothing; a quarter of the way, to
         // half its size.

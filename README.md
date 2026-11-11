@@ -1,21 +1,31 @@
-# MorphText for Swift
+# Morpheum
 
-Text that morphs letter by letter. A light word turns heavy, a serif word
-turns rounded, a small title grows and loosens, one word becomes another,
-and a word gathers into an SF Symbol, with plain text (or the symbol itself)
-at either end. Letters change shape as outlines or as strokes, whichever
-suits each pair.
+Shapes that morph, in SwiftUI. A light word turns heavy, one word becomes
+another, a word pours into an SF Symbol, an app icon flows into a logo, one
+QR code rearranges itself into the next, with plain text (or the art itself)
+at either end.
 
-The Swift sibling of [morphtext](https://github.com/drei-gg/morphtext) for
-Flutter. SwiftUI, iOS 17 and macOS 14, Swift Package Manager.
+Two engines do the work, and `auto` picks between them:
 
-> Early: text into text (any weight, size, spacing or font), text into and
-> out of SF Symbols and your own vector shapes, an implicit `AnimatedMorph`,
-> and outline and stroke engines work, with tests on macOS and iOS. Not
-> published: it lives in the Seven and Done apps first.
+- **Ink** treats ink as mass and carries it the cheapest way from one shape
+  to the other (optimal transport). Nothing is matched, so nothing is left
+  to vanish or tear: `Save` bends and pours into its tick, `Send` shears
+  into a paper plane.
+- **Outlines** morph each letter's outline into its partner's, point for
+  point: exact, every counter kept through a weight change, and a lively
+  scatter between two icons.
+
+SwiftUI, iOS 17 and macOS 14, Swift Package Manager. The Swift sibling of
+[morphtext](https://github.com/drei-gg/morphtext) for Flutter.
+
+> Pre-release: not tagged yet. It lives in the Seven and Done apps first.
 
 ```swift
-import MorphText
+.package(url: "https://github.com/drei-gg/morpheum", branch: "main")
+```
+
+```swift
+import Morpheum
 
 struct Title: View {
     @State private var on = false
@@ -31,8 +41,10 @@ struct Title: View {
 ```
 
 `progress` animates: change it inside `withAnimation` (a spring's overshoot
-carries the outlines a little past either end), or drive it from a gesture,
-a scroll position or a transition. At exactly 0 and 1 it is plain text.
+carries the shapes a little past either end and back), or drive it from a
+gesture, a scroll position or a transition. At exactly 0 and 1 it is plain
+text, drawn exactly where the morph lands, so there is no step as it
+settles.
 
 ## Implicit morphs
 
@@ -59,85 +71,45 @@ bounce reads as a wobble on letters); anything with a symbol gets a little
 snap. Pass `animation:` for your own, and `onEnd:` to hear when it lands.
 With Reduce Motion on, changes apply at once.
 
-## SF Symbols
-
-`MorphBetween` takes text or a symbol at either end:
+## Engines
 
 ```swift
-MorphBetween(from: .text("Send", style: .system(size: 28, weight: .semibold)),
-             to: .symbol("paperplane.fill", size: 28, weight: .semibold),
-             progress: sent ? 1 : 0)
+MorphBetween(from: send, to: plane, progress: t)
+    .morphEngine(.ink)      // for everything inside; .auto by default
 ```
 
-A word and a symbol morph as one shape, every letter from its place in the
-word; one symbol morphs into another as a glyph does. At rest a symbol end is
-its own outline, filled where the morph lands it (`Image(systemName:)` would
-sit up to 3/4 of a point elsewhere, and the landing would step).
-
-No public API hands over a symbol's outline, so SwiftUI draws the symbol
-into a PDF, which keeps it vector, and the PDF's paths are read back, soft
-masks (the tick cut out of `checkmark.circle.fill`) included. Each symbol is
-read once per size, weight and screen scale. Monochrome only: a multicolour
-or hierarchical symbol's layers become one shape in one colour. Next to a
-plain `Image(systemName:)` the outline may sit up to 3/4 of a point apart,
-since SwiftUI places an image's pixels differently depending on where it
-sits.
-
-## Shapes of your own
-
-Vector art morphs too: an app icon's glyph into a logo, a logo into a word.
-Give it a `CGPath` in a box, or SVG:
-
-```swift
-let icon = MorphContent.shape(glyphPath, size: CGSize(width: 160, height: 160), color: ink)
-let mark = try MorphContent.shape(svg: squaremarkSVG, size: CGSize(width: 160, height: 160), color: red)
-MorphBetween(from: icon, to: mark, progress: t)
-```
-
-The SVG is read for its solid shape: path data (every command, arcs
-included), transforms on paths and groups, the viewBox (fitted into `size`
-and centred, as SVG does by default) and fill rules. Anything in `<defs>`,
-`<clipPath>` or `<mask>`, and paths filled with `none` or a gradient, are
-left out as decoration, so draw shadows and highlights yourself, over the
-morph. One shape, one colour: the art's own colours are ignored.
-
-## Outlines and strokes
-
-Letters change shape one of three ways:
-
+- **Ink** (`.ink`): each end is sampled as grains of ink, and each grain's
+  cheapest way to the other end is planned (entropic optimal transport,
+  Sinkhorn's iterations on Accelerate). Each end's own outline travels
+  along that flow, the start's out and the end's in, spring overshoot and
+  all, so both move as vector outlines do: smooth at any size, landing
+  exactly. In mid flight one hands over to the other through their
+  distance fields, warped by the same flow. About 20 ms to plan (in the
+  background) and 2 to 5 ms a frame, on an Intel Mac VM.
 - **Outlines** (`.outline`): each letter's outline morphs into its
-  partner's, point for point. Exact at both ends and best for one letter at
-  another weight, where every counter stays put. Between two different
-  letters the sides of a stroke can drift apart, so a letter smears thicker
-  than either end, and pieces with no partner shrink away almost at once:
-  `Send`'s `end` is gone a tenth of the way into the paper plane.
-- **Strokes** (`.strokes`): each letter is traced to its centrelines, a
-  width at every point, and each stroke bends, turns and thins into its
-  partner along its length. Nothing in flight is thicker than the thicker
-  end; serifs ride their stems; a stroke with no partner draws back into the
-  stroke it joins. A word gathering into a symbol does that in turn: the
-  word's spare strokes draw in over the first half, the symbol's draw out
-  over the second, so a word visibly folds into the shape it becomes. The
-  strokes miss a letter's square corners, so those grow back as it lands.
-- **Transport** (`.transport`): ink as mass, carried the cheapest way from
-  one shape to the other (optimal transport). Each end is sampled as
-  grains, each grain's way to the other end is planned, each end's outline
-  is warped along that flow, and one hands over to the other as they meet.
-  Nothing is matched, so nothing is left over: `Save` bends and pours into
-  its tick, `Send` shears into the paper plane, a QR glyph's squares flow
-  into a logo. Every frame is one clean outline. About 20 ms to plan (in
-  the background) and 2 to 5 ms a frame.
+  partner's, point for point, contours matched fills to fills and holes to
+  holes, and interpolated in polar form. Exact at both ends and best for one
+  letter at another weight. Between different letters a stroke's sides can
+  drift apart, and pieces with no partner shrink away almost at once.
 - **Auto** (`.auto`, the default) picks: outlines for the same letter at
-  another weight, for a shape filling in or hollowing out and for solid
-  shapes; transport for everything else (one letter into another, a word
-  gathering into a symbol, art whose pieces don't pair up). Strokes stay
-  available by name; they tear where a letter's pieces part and seam where
-  they meet, which transport can't.
+  another weight and for a shape filling in or hollowing out (a bookmark
+  into a filled one); ink for everything else.
+
+Two more engines ship as experiments, to show there's room for others:
+
+- **Strokes** (`.strokes`): each letter traced to its centrelines, a width
+  at every point, each stroke bending and thinning into its partner, serifs
+  riding their stems, drawn as one seamless outline a frame. A calligraphic
+  look between letters; a stroke that grows in can part from its letter
+  for a frame or two.
+- **Fields** (`.fields`): what only the start has drains into the end, what
+  only the end has fills in. Every frame is clean, but the two ends read as
+  overlaid rather than one becoming the other.
 
 ### Engines of your own
 
-An engine is anything that plans a morph between two outlines once and
-then draws any frame of it. Conform to `Morpher` and hand it over:
+An engine plans a morph between two outlines once, then draws any frame of
+it. Conform to `Morpher` and hand it over:
 
 ```swift
 final class Dissolve: Morpher {
@@ -150,29 +122,50 @@ MorphBetween(from: a, to: b, progress: t)
 ```
 
 `MorphOutline.polygons` gives each end as closed polygons in ems; return
-the frame the same way, each end's own outline at 0 and 1, and the
-package carries it into place, draws it, and hands over to the text at
-rest. `context` says how many points an em is on screen, and whether it's
-a whole word gathering into a symbol. The built-in engines are written
-the same way.
+each frame the same way, each end's own outline at 0 and 1, and the package
+carries it into place, draws it and hands over to the text at rest.
+`context` says how many points an em is on screen, and whether it's a whole
+word gathering into a symbol. The built-in engines are written the same
+way.
 
-Matching engines (outlines, strokes) must make whatever has no partner
-vanish: a word's spare letters melt, or draw back and tear. That's why a
-word into a symbol goes by transport. Two more engines are in the package
-as experiments: `.strokes` (a calligraphic look between letters, drawn as
-one outline a frame; a stroke that grows in can part for a frame or two)
-and `.fields` (one end drains into the other: clean, but they read as
-overlaid).
+## SF Symbols
+
+`MorphBetween` takes text, a symbol or art at either end:
 
 ```swift
-MorphBetween(from: send, to: plane, progress: t)
-    .morphEngine(.strokes)      // for everything inside
+MorphBetween(from: .text("Send", style: .system(size: 28, weight: .semibold)),
+             to: .symbol("paperplane.fill", size: 28, weight: .semibold),
+             progress: sent ? 1 : 0)
 ```
 
-Tracing takes a few milliseconds a letter (about 35 ms for `Send` into a
-paper plane, optimised, on an Intel Mac VM), so `MorphBetween` plans on a
-background queue as soon as its ends are known, and each letter is traced
-once per font whatever it morphs into.
+A word and a symbol morph as one shape, every letter from its place in the
+word. At rest a symbol end is its own outline, filled where the morph lands
+it (`Image(systemName:)` would sit up to 3/4 of a point elsewhere, and the
+landing would step).
+
+No public API hands over a symbol's outline, so SwiftUI draws the symbol
+into a PDF, which keeps it vector, and the PDF's paths are read back, soft
+masks (the tick cut out of `checkmark.circle.fill`) included. Each symbol is
+read once per size, weight and screen scale. Monochrome only: a multicolour
+or hierarchical symbol's layers become one shape in one colour.
+
+## Shapes of your own
+
+Vector art morphs too: an app icon's glyph into a logo, a logo into a word.
+Give it a `CGPath` in a box, or SVG:
+
+```swift
+let icon = MorphContent.shape(glyphPath, size: CGSize(width: 160, height: 160), color: ink)
+let mark = try MorphContent.shape(svg: logoSVG, size: CGSize(width: 160, height: 160), color: red)
+MorphBetween(from: icon, to: mark, progress: t)
+```
+
+The SVG is read for its solid shape: path data (every command, arcs
+included), transforms on paths and groups, the viewBox (fitted into `size`
+and centred, as SVG does by default) and fill rules. Anything in `<defs>`,
+`<clipPath>` or `<mask>`, and paths filled with `none` or a gradient, are
+left out as decoration, so draw shadows and highlights yourself, over the
+morph. One shape, one colour: the art's own colours are ignored.
 
 ## QR codes
 
@@ -188,14 +181,13 @@ Modules dark in both stay put. The others slide to the nearest free module
 of the other code in a wave across it; one with no partner merges into a
 neighbour, or splits off from one, so nothing pops. The three finder
 squares move as units, so they stay crisp concentric squares as the grid
-grows or shrinks. Every frame is a code's worth of squares. It plans in a
-few milliseconds and draws in well under one. `QRCode(rows:)` and
-`QRCode(count:dark:)` take modules from any generator; into anything that
-isn't a QR code, a code morphs as a shape.
+grows or shrinks. Every frame is a code's worth of squares, and each end
+scans. It plans in a few milliseconds and draws in well under one.
+`QRCode(rows:)` and `QRCode(count:dark:)` take modules from any generator.
 
 ## Styles
 
-A SwiftUI `Font` can't be read back as an outline, so each end takes a
+A SwiftUI `Font` can't be read back as an outline, so each text end takes a
 `MorphStyle`: a CoreText font (size, and for a variable font, where on its
 axes), a colour and letter spacing.
 
@@ -207,57 +199,48 @@ MorphStyle(font: someCTFont, color: .primary)    // any CTFont, UIFont or NSFont
 
 ## Drawing it yourself
 
-The engine is public, for UIKit, AppKit or Core Animation:
+The morph is public, for UIKit, AppKit or Core Animation:
 
 ```swift
 let morph = TextMorph("Light", from: .system(size: 48, weight: .ultraLight),
                       to: "Heavy", in: .system(size: 48, weight: .black))
-morph.prepare()                       // plan now, not on the first frame
+morph.prepareInBackground()           // plan off the main thread
 let size = morph.size(at: t)
 shapeLayer.path = morph.path(at: t, in: size)   // fill non-zero
 ```
 
-`TextMorph(…, engine:)` takes the engine; `prepareInBackground()` plans off
-the main thread.
-
-Underneath, `MorphOutline` reads any `CGPath` and `MorphOutlinePlan` morphs
-one outline into another.
+`TextMorph(…, engine:)` takes an engine. Underneath, `MorphOutline` reads
+any `CGPath` and `MorphOutlinePlan` morphs one outline into another.
 
 ## How it works
 
 CoreText lays out both ends (kerning, fallback fonts and baseline) and gives
 each letter's glyph outline, the system font included, so nothing is parsed
-from font files. Letters pair up by a weighted edit distance (`Ruby` slides
-into `bRuby`; `Amethyst` keeps its `t`), and each pair's contours are sampled,
-matched (fills with fills, holes with holes) and aligned by rotation, scale
-and starting point, then interpolated in polar form. A letter with no partner
-grows from, or shrinks into, the place of its neighbour.
+from font files. A glyph drawn as overlapping pieces (many fonts draw a g's
+ear over its bowl) is merged into one outline first. Letters pair up by a
+weighted edit distance (`Ruby` slides into `bRuby`; `Amethyst` keeps its
+`t`); a letter with no partner grows from, or shrinks into, the place of its
+neighbour. A word and a single glyph morph as one shape.
 
-The outline geometry is a port of morphnext's, checked against it: the
-tests plan the same letter pairs from the same font files as morphnext 0.7.1
-and must draw the same shapes. The stroke engine is a port of the Flutter
-package's (its `strokes` branch): each glyph is filled into pixels, thinned
-to its medial axis in order of distance from the edge, read as a graph of
-lines and pruned of spurs, then each point is moved to the true middle of
-its stroke and given its exact width against the outline. Strokes pair at
-least cost (Kuhn–Munkres), turn as a whole (Procrustes), and are glued at
-their joints, slimmed where they overlap and carried with what they hang
-from. The tests run on macOS and the iOS simulator.
+The outline engine is a port of [morphnext](https://github.com/KickNext/morphnext)'s
+geometry, checked against it: the tests plan the same letter pairs from the
+same font files as morphnext 0.7.1 and must draw the same shapes. The ink
+engine is this package's own. The stroke engine is a port of the Flutter
+package's experimental one. The tests run on macOS and the iOS simulator.
 
 ## Demo
 
-On a Mac, `swift run MorphTextDemo`: seven morphs (weight, words, fonts,
+On a Mac, `swift run MorpheumDemo`: seven morphs (weight, words, fonts,
 size, two words into symbols, a symbol into a symbol), an engine switch, a
 spring and a scrubber, and below them a Save button and a bookmark switch
-built on `AnimatedMorph`.
-`MorphText.swift` has Xcode previews too.
+built on `AnimatedMorph`. `MorphText.swift` has Xcode previews too.
 
 ## License and attribution
 
-MorphText is MIT licensed.
+Morpheum is MIT licensed.
 
-Its outline geometry is ported from [morphnext](https://github.com/KickNext/morphnext)
+Its outline engine is ported from [morphnext](https://github.com/KickNext/morphnext)
 (MIT, © 2026 KickNext), which in turn adapts MIT-licensed work from
 [Morphicons](https://github.com/guillermolg00/morphicons); see
-`THIRD_PARTY_NOTICES.md`. MorphText is an independent project, not affiliated
+`THIRD_PARTY_NOTICES.md`. Morpheum is an independent project, not affiliated
 with or endorsed by KickNext or the Morphicons project.

@@ -3,21 +3,21 @@
 import PackageDescription
 
 let package = Package(
-    name: "morphtext-swift",
+    name: "morpheum",
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [
-        .library(name: "MorphText", targets: ["MorphText"]),
+        .library(name: "Morpheum", targets: ["Morpheum"]),
     ],
     targets: [
-        .target(name: "MorphText"),
+        .target(name: "Morpheum"),
         .executableTarget(
-            name: "MorphTextDemo",
-            dependencies: ["MorphText"],
+            name: "MorpheumDemo",
+            dependencies: ["Morpheum"],
             path: "Demo"
         ),
         .testTarget(
-            name: "MorphTextTests",
-            dependencies: ["MorphText"],
+            name: "MorpheumTests",
+            dependencies: ["Morpheum"],
             resources: [.copy("Fixtures")]
         ),
     ]

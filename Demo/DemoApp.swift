@@ -1,7 +1,7 @@
-// A small demo: `swift run MorphTextDemo` on a Mac. Pick a pair, then morph
+// A small demo: `swift run MorpheumDemo` on a Mac. Pick a pair, then morph
 // it with the spring or scrub it with the slider.
 
-import MorphText
+import Morpheum
 import SwiftUI
 
 struct Pair: Identifiable {
@@ -142,7 +142,7 @@ struct DemoApp: App {
     #endif
 
     var body: some Scene {
-        WindowGroup("MorphText") { DemoView() }
+        WindowGroup("Morpheum") { DemoView() }
             .windowResizability(.contentSize)
     }
 }

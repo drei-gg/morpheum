@@ -1,6 +1,6 @@
 import CoreGraphics
 import Testing
-@testable import MorphText
+@testable import Morpheum
 
 /// A square of side `side` at (`x`, `y`), wound clockwise in a y-down frame
 /// or anticlockwise when `reversed`.

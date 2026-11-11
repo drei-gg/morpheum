@@ -1,7 +1,7 @@
 import CoreGraphics
 import SwiftUI
 import Testing
-@testable import MorphText
+@testable import Morpheum
 
 @Suite struct SVGPaths {
     private func box(_ data: String) throws -> CGRect { try SVG.path(data).boundingBoxOfPath }

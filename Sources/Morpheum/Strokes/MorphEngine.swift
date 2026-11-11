@@ -6,7 +6,7 @@ import SwiftUI
 ///
 /// ```swift
 /// MorphBetween(from: send, to: plane, progress: t)
-///     .morphEngine(.transport)
+///     .morphEngine(.ink)
 /// ```
 public struct MorphEngine: Hashable, @unchecked Sendable {
     // @unchecked: a custom engine's maker is the caller's to make safe to
@@ -23,7 +23,7 @@ public struct MorphEngine: Hashable, @unchecked Sendable {
         public let gathering: Bool
     }
 
-    enum BuiltIn: Hashable { case outline, strokes, fields, transport, auto }
+    enum BuiltIn: Hashable { case outline, strokes, fields, ink, auto }
 
     /// Its name: equal names are the same engine.
     public let name: String
@@ -41,12 +41,14 @@ public struct MorphEngine: Hashable, @unchecked Sendable {
     public static let outline = MorphEngine(name: "outline", builtIn: .outline, make: nil)
 
     /// Ink as mass, carried the cheapest way from one shape to the other
-    /// (optimal transport): each end sampled as grains, each grain's way to
-    /// the other end planned, each end's outline warped along that flow, and
-    /// one handed to the other as they meet. The start's letters slide and
-    /// merge into the end: nothing is made or lost, so nothing is left to
-    /// vanish or tear off. About 20 ms to plan and 2 to 5 ms a frame.
-    public static let transport = MorphEngine(name: "transport", builtIn: .transport, make: nil)
+    /// (optimal transport): each end sampled as grains of ink, each grain's
+    /// way to the other end planned. Each end's own outline travels along
+    /// that flow (the start's out, the end's in, spring overshoot and all),
+    /// and in mid flight one hands over to the other through their distance
+    /// fields, warped by the same flow. The start's letters slide and merge
+    /// into the end: nothing is made or lost, so nothing is left to vanish
+    /// or tear off. About 20 ms to plan and 2 to 5 ms a frame.
+    public static let ink = MorphEngine(name: "ink", builtIn: .ink, make: nil)
 
     /// Stroke into stroke, experimental: each letter traced to its
     /// centrelines, a width at every point, each stroke bending and thinning
@@ -63,7 +65,7 @@ public struct MorphEngine: Hashable, @unchecked Sendable {
 
     /// Each letter pair (or a word and a symbol, as one) as whichever morphs
     /// it best: outlines for the same letter at another weight (every
-    /// counter kept) and a hollow shape filling in; transport for anything
+    /// counter kept) and a hollow shape filling in; `ink` for anything
     /// else: one letter into another, a word gathering into a symbol, art
     /// whose pieces don't pair up (a QR glyph into a logo). Two QR codes
     /// morph module by module, whatever the engine.
