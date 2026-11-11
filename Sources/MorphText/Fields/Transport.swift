@@ -28,6 +28,14 @@ final class TransportMorph: @unchecked Sendable {
     /// How finely its fields and frames are sampled.
     private let pixelsPerEm: Double
     private let reach: (Double, Double, Double, Double)
+    /// Fixed-point steps to read the flow backwards in the hand-over: six
+    /// meet the carried outlines at either side of it as closely as one frame
+    /// meets the next (three left a word gathering into a tick a step apart).
+    static let inverseSteps = 6
+
+    /// Each end's own outline, about its centre: what the flow carries at
+    /// either end of the morph.
+    private let outlineA: [[Double]], outlineB: [[Double]]
 
     /// The morph from `from` to `to` (closed polygons in ems, non-zero, in
     /// one frame); nil when either is empty.
@@ -78,66 +86,103 @@ final class TransportMorph: @unchecked Sendable {
             r.2 = max(r.2, f.x0 + Double(f.w - 1) * f.step - c.0); r.3 = max(r.3, f.y0 + Double(f.h - 1) * f.step - c.1)
         }
         reach = r
+        func about(_ polygons: [[Double]], _ c: (Double, Double)) -> [[Double]] {
+            polygons.map { p in p.enumerated().map { k, v in v - (k % 2 == 0 ? c.0 : c.1) } }
+        }
+        outlineA = about(from, ca)
+        outlineB = about(to, cb)
     }
 
     /// The shape at `t` (0 is `from`, 1 is `to`), as closed polygons in ems.
+    ///
+    /// Each grain's way is a flow: where a point of the start goes, and where
+    /// a point of the end came from. Leaving the start, its own outline (the
+    /// glyph's curves, not a traced field) is carried along that flow, and
+    /// arriving, the end's outline is carried in along it, so both ends move
+    /// as vector outlines do: their edges travel with them, smooth at any
+    /// size, and land exactly. Only the hand-over between them, in mid
+    /// flight, is drawn from their fields, warped by the same flow, so the
+    /// two phases meet without a step.
     func polygons(at t: Double) -> [[Double]] {
-        // Past either end (a spring's overshoot), each grain carries on along
-        // its way and comes back, as the outline engine's points do: the end
-        // snaps into place rather than stopping dead. Placement and the
-        // hand-over keep to 0...1.
+        // Past either end (a spring's overshoot), each point carries on along
+        // its way and comes back, so the end snaps into place. Placement and
+        // the hand-over keep to 0...1.
         let raw = min(max(t, -0.25), 1.25)
         let t = min(max(t, 0), 1)
         let c = (centreA.0 + (centreB.0 - centreA.0) * t, centreA.1 + (centreB.1 - centreA.1) * t)
-        // The flow at `t`, on a coarse grid (a grain's spacing) about the
-        // moving centre: each grain's displacement, spread where the grain
-        // is now. Near grains, theirs; further out, a wider average.
+        // The flow, where each end's grains rest, on a coarse grid (a grain's
+        // spacing) about the centre. It's only as smooth as the grains it's
+        // read from: the nearer an end, the more it's blurred, since there the
+        // warp is small and smoothness matters more than precision.
         let coarse = spacing
         let gx0 = reach.0, gy0 = reach.1
         let gw = Int(((reach.2 - reach.0) / coarse).rounded(.up)) + 1, gh = Int(((reach.3 - reach.1) / coarse).rounded(.up)) + 1
-        // The flow is only as smooth as the grains it's read from, and an end
-        // warped by a bumpy flow has a wavy edge. Near either end the warp is
-        // small, and smoothness matters more than precision: each end's flow
-        // is blurred more the nearer that end is, so its outline settles
-        // straight rather than crawling in.
         func near(_ x: Double) -> Double {
             let u = min(max(x / 0.5, 0), 1)
             return 2 + 5 * (1 - u * u * (3 - 2 * u))
         }
-        let forward = flow(grainsA, along: t, gx0, gy0, gw, gh, coarse, sharpness: near(t))
-        let backward = flow(grainsB, along: 1 - t, gx0, gy0, gw, gh, coarse, sharpness: near(1 - t))
         // The start's field leads until the two have nearly met, then hands
         // over: blended while they still lie apart, both would show.
         let u = min(max((t - 0.35) / 0.55, 0), 1)
         let blend = u * u * (3 - 2 * u)
-        /// The frame's field at (x, y), about the moving centre: back along
-        /// the flow to where the point was in each end, and blended. Raw
-        /// buffers: this runs for every sample near the edge, every frame.
-        let fdx = forward.dx, fdy = forward.dy, bdx = backward.dx, bdy = backward.dy
-        let fieldA = a, fieldB = b
-        let ca = centreA, cb = centreB
-        func value(_ x: Double, _ y: Double) -> Double {
+        let forward = blend < 1 ? flow(grainsA, along: 0, gx0, gy0, gw, gh, coarse, sharpness: near(t)) : ([], [])
+        let backward = blend > 0 ? flow(grainsB, along: 0, gx0, gy0, gw, gh, coarse, sharpness: near(1 - t)) : ([], [])
+        /// The flow `f` at (x, y), about the centre: bilinear on the grid.
+        func at(_ f: (dx: [Double], dy: [Double]), _ x: Double, _ y: Double) -> (Double, Double) {
             let fx = min(max((x - gx0) / coarse, 0), Double(gw - 1)), fy = min(max((y - gy0) / coarse, 0), Double(gh - 1))
             let i = min(Int(fx), gw - 2), j = min(Int(fy), gh - 2)
             let p = fx - Double(i), q = fy - Double(j)
             let k = j * gw + i
             let w00 = (1 - p) * (1 - q), w10 = p * (1 - q), w01 = (1 - p) * q, w11 = p * q
-            var total = 0.0
-            if blend < 1 {
-                let (ux, uy) = fdx.withUnsafeBufferPointer { dx in fdy.withUnsafeBufferPointer { dy in
-                    (dx[k] * w00 + dx[k + 1] * w10 + dx[k + gw] * w01 + dx[k + gw + 1] * w11,
-                     dy[k] * w00 + dy[k + 1] * w10 + dy[k + gw] * w01 + dy[k + gw + 1] * w11)
-                } }
-                total += (1 - blend) * fieldA.distance(x - raw * ux + ca.0, y - raw * uy + ca.1)
+            return f.dx.withUnsafeBufferPointer { dx in f.dy.withUnsafeBufferPointer { dy in
+                (dx[k] * w00 + dx[k + 1] * w10 + dx[k + gw] * w01 + dx[k + gw + 1] * w11,
+                 dy[k] * w00 + dy[k + 1] * w10 + dy[k + gw] * w01 + dy[k + gw + 1] * w11)
+            } }
+        }
+        /// An end's outline, each point carried `amount` of its way.
+        func carried(_ outline: [[Double]], _ f: (dx: [Double], dy: [Double]), _ amount: Double) -> [[Double]] {
+            outline.map { p in
+                var out = p
+                for k in stride(from: 0, to: p.count, by: 2) {
+                    let (dx, dy) = at(f, p[k], p[k + 1])
+                    out[k] = c.0 + p[k] + amount * dx
+                    out[k + 1] = c.1 + p[k + 1] + amount * dy
+                }
+                return out
             }
-            if blend > 0 {
-                let (vx, vy) = bdx.withUnsafeBufferPointer { dx in bdy.withUnsafeBufferPointer { dy in
-                    (dx[k] * w00 + dx[k + 1] * w10 + dx[k + gw] * w01 + dx[k + gw + 1] * w11,
-                     dy[k] * w00 + dy[k + 1] * w10 + dy[k + gw] * w01 + dy[k + gw + 1] * w11)
-                } }
-                total += blend * fieldB.distance(x - (1 - raw) * vx + cb.0, y - (1 - raw) * vy + cb.1)
+        }
+        if blend == 0 { return carried(outlineA, forward, raw) }
+        if blend == 1 { return carried(outlineB, backward, 1 - raw) }
+
+        // The hand-over: each end's field, read back along the same flow
+        // (where a point here came from: the flow's inverse, by a few fixed-
+        // point steps), and blended.
+        let fieldA = a, fieldB = b
+        let ca = centreA, cb = centreB
+        // The inverse, once a frame on the flow's own coarse grid, then read
+        // bilinearly like the flow: solving it at every sample cost a word
+        // twice the time a frame.
+        func inverse(_ f: (dx: [Double], dy: [Double]), _ amount: Double) -> (dx: [Double], dy: [Double]) {
+            var ix = [Double](repeating: 0, count: gw * gh), iy = ix
+            for j in 0..<gh {
+                for i in 0..<gw {
+                    let x = gx0 + Double(i) * coarse, y = gy0 + Double(j) * coarse
+                    var qx = x, qy = y
+                    for _ in 0..<Self.inverseSteps {
+                        let (dx, dy) = at(f, qx, qy)
+                        qx = x - amount * dx
+                        qy = y - amount * dy
+                    }
+                    ix[j * gw + i] = qx - x
+                    iy[j * gw + i] = qy - y
+                }
             }
-            return total
+            return (ix, iy)
+        }
+        let backA = inverse(forward, raw), backB = inverse(backward, 1 - raw)
+        func value(_ x: Double, _ y: Double) -> Double {
+            let (ax, ay) = at(backA, x, y), (bx, by) = at(backB, x, y)
+            return (1 - blend) * fieldA.distance(x + ax + ca.0, y + ay + ca.1) + blend * fieldB.distance(x + bx + cb.0, y + by + cb.1)
         }
         // Coarse first, four fine steps a sample; fine only near the edge,
         // where a coarse cell's corners come within its size of zero. (The
@@ -152,12 +197,12 @@ final class TransportMorph: @unchecked Sendable {
         }
         let w = (cw - 1) * ratio + 1, h = (ch - 1) * ratio + 1
         var values = [Double](repeating: 0, count: w * h)
-        let near = 1.5 * step * Double(ratio)
+        let nearEdge = 1.5 * step * Double(ratio)
         for cj in 0..<(ch - 1) {
             for ci in 0..<(cw - 1) {
                 let v00 = rough[cj * cw + ci], v10 = rough[cj * cw + ci + 1]
                 let v01 = rough[(cj + 1) * cw + ci], v11 = rough[(cj + 1) * cw + ci + 1]
-                let exact = min(min(abs(v00), abs(v10)), min(abs(v01), abs(v11))) < near
+                let exact = min(min(abs(v00), abs(v10)), min(abs(v01), abs(v11))) < nearEdge
                 for dj in 0...ratio {
                     for di in 0...ratio {
                         let k = (cj * ratio + dj) * w + ci * ratio + di

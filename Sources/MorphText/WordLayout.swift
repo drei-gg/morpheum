@@ -118,7 +118,7 @@ struct WordLayout: @unchecked Sendable {
                     path.addPath(glyph)
                 }
             }
-            let outline = (try? MorphOutline(path: path)) ?? nil
+            let outline = (try? MorphOutline(path: mergingOverlaps(path))) ?? nil
             return Letter(character: characters[k], pen: first.position.x, em: em, outline: outline,
                           strokeKey: strokeCacheKey(first.font, characters[k]),
                           family: CTFontCopyFamilyName(first.font) as String)
@@ -133,13 +133,14 @@ struct WordLayout: @unchecked Sendable {
             self.init(vector: nil, name: name, box: .zero, baseline: 0, em: size)
             return
         }
-        self.init(vector: outline.path, name: name, box: outline.size, baseline: outline.baseline, em: size)
+        // Already one shape: the symbol's layers were united as it was read.
+        self.init(vector: outline.path, name: name, box: outline.size, baseline: outline.baseline, em: size, merging: false)
     }
 
     /// Vector art `path` (points, y down, from the top left of a `box`), as
     /// one letter whose pen is the box's left edge, on `baseline`, `em` points
     /// to the em. Empty without a path.
-    init(vector path: CGPath?, name: String, box: CGSize, baseline: CGFloat, em: CGFloat) {
+    init(vector path: CGPath?, name: String, box: CGSize, baseline: CGFloat, em: CGFloat, merging: Bool = true) {
         text = name
         style = nil
         line = nil
@@ -151,11 +152,14 @@ struct WordLayout: @unchecked Sendable {
             self.baseline = 0
             return
         }
-        vector = path
+        // At rest it's drawn as the morph reads it: overlaps merged.
+        var toEms = CGAffineTransform(a: 1 / em, b: 0, c: 0, d: 1 / em, tx: 0, ty: -baseline / em)
+        var toPoints = toEms.inverted()
+        let merged = path.copy(using: &toEms).map { merging ? mergingOverlaps($0) : $0 }
+        vector = merged.flatMap { $0.copy(using: &toPoints) } ?? path
         size = box
         self.baseline = baseline
-        var toEms = CGAffineTransform(a: 1 / em, b: 0, c: 0, d: 1 / em, tx: 0, ty: -baseline / em)
-        let shape = path.copy(using: &toEms).flatMap { (try? MorphOutline(path: $0)) ?? nil }
+        let shape = merged.flatMap { (try? MorphOutline(path: $0)) ?? nil }
         letters = [Letter(character: "\u{FFFC}", pen: 0, em: em, outline: shape)]
     }
 
@@ -186,3 +190,18 @@ struct WordLayout: @unchecked Sendable {
         return CGPoint(x: x, y: baseline - Self.gapHeight * em)
     }
 }
+
+/// `path` (in ems) with overlapping pieces merged into one outline, holes
+/// kept. Many fonts draw a letter as overlapping pieces (a g's ear over its
+/// bowl, an h's arch over its stem); read as nested, the inner piece is
+/// wound as a hole, the overlap cancels, and every engine draws thin white
+/// slivers along it. Merged at a thousand units to the em, where
+/// CoreGraphics' path operations keep their precision.
+func mergingOverlaps(_ path: CGPath) -> CGPath {
+    var up = CGAffineTransform(scaleX: 1000, y: 1000), down = CGAffineTransform(scaleX: 0.001, y: 0.001)
+    guard let big = path.copy(using: &up) else { return path }
+    let merged = big.normalized(using: .winding)
+    if merged.isEmpty { return path }
+    return merged.copy(using: &down) ?? path
+}
+
