@@ -82,6 +82,11 @@ final class TransportMorph: @unchecked Sendable {
 
     /// The shape at `t` (0 is `from`, 1 is `to`), as closed polygons in ems.
     func polygons(at t: Double) -> [[Double]] {
+        // Past either end (a spring's overshoot), each grain carries on along
+        // its way and comes back, as the outline engine's points do: the end
+        // snaps into place rather than stopping dead. Placement and the
+        // hand-over keep to 0...1.
+        let raw = min(max(t, -0.25), 1.25)
         let t = min(max(t, 0), 1)
         let c = (centreA.0 + (centreB.0 - centreA.0) * t, centreA.1 + (centreB.1 - centreA.1) * t)
         // The flow at `t`, on a coarse grid (a grain's spacing) about the
@@ -90,8 +95,17 @@ final class TransportMorph: @unchecked Sendable {
         let coarse = spacing
         let gx0 = reach.0, gy0 = reach.1
         let gw = Int(((reach.2 - reach.0) / coarse).rounded(.up)) + 1, gh = Int(((reach.3 - reach.1) / coarse).rounded(.up)) + 1
-        let forward = flow(grainsA, along: t, gx0, gy0, gw, gh, coarse)
-        let backward = flow(grainsB, along: 1 - t, gx0, gy0, gw, gh, coarse)
+        // The flow is only as smooth as the grains it's read from, and an end
+        // warped by a bumpy flow has a wavy edge. Near either end the warp is
+        // small, and smoothness matters more than precision: each end's flow
+        // is blurred more the nearer that end is, so its outline settles
+        // straight rather than crawling in.
+        func near(_ x: Double) -> Double {
+            let u = min(max(x / 0.5, 0), 1)
+            return 2 + 5 * (1 - u * u * (3 - 2 * u))
+        }
+        let forward = flow(grainsA, along: t, gx0, gy0, gw, gh, coarse, sharpness: near(t))
+        let backward = flow(grainsB, along: 1 - t, gx0, gy0, gw, gh, coarse, sharpness: near(1 - t))
         // The start's field leads until the two have nearly met, then hands
         // over: blended while they still lie apart, both would show.
         let u = min(max((t - 0.35) / 0.55, 0), 1)
@@ -114,14 +128,14 @@ final class TransportMorph: @unchecked Sendable {
                     (dx[k] * w00 + dx[k + 1] * w10 + dx[k + gw] * w01 + dx[k + gw + 1] * w11,
                      dy[k] * w00 + dy[k + 1] * w10 + dy[k + gw] * w01 + dy[k + gw + 1] * w11)
                 } }
-                total += (1 - blend) * fieldA.distance(x - t * ux + ca.0, y - t * uy + ca.1)
+                total += (1 - blend) * fieldA.distance(x - raw * ux + ca.0, y - raw * uy + ca.1)
             }
             if blend > 0 {
                 let (vx, vy) = bdx.withUnsafeBufferPointer { dx in bdy.withUnsafeBufferPointer { dy in
                     (dx[k] * w00 + dx[k + 1] * w10 + dx[k + gw] * w01 + dx[k + gw + 1] * w11,
                      dy[k] * w00 + dy[k + 1] * w10 + dy[k + gw] * w01 + dy[k + gw + 1] * w11)
                 } }
-                total += blend * fieldB.distance(x - (1 - t) * vx + cb.0, y - (1 - t) * vy + cb.1)
+                total += blend * fieldB.distance(x - (1 - raw) * vx + cb.0, y - (1 - raw) * vy + cb.1)
             }
             return total
         }
@@ -167,7 +181,8 @@ final class TransportMorph: @unchecked Sendable {
 /// is now, then blurred twice (separably) and the two mixed, near grains
 /// counting most.
 private func flow(_ grains: [(x: Double, y: Double, dx: Double, dy: Double)], along: Double,
-                  _ gx0: Double, _ gy0: Double, _ gw: Int, _ gh: Int, _ cell: Double) -> (dx: [Double], dy: [Double]) {
+                  _ gx0: Double, _ gy0: Double, _ gw: Int, _ gh: Int, _ cell: Double,
+                  sharpness sigma: Double = 2) -> (dx: [Double], dy: [Double]) {
     var w = [Double](repeating: 0, count: gw * gh), x = w, y = w
     for g in grains {
         let px = min(max((g.x + g.dx * along - gx0) / cell, 0), Double(gw - 1) - 1e-9)
@@ -198,8 +213,9 @@ private func flow(_ grains: [(x: Double, y: Double, dx: Double, dy: Double)], al
         }
         return out
     }
-    let w1 = blurred(w, 2), x1 = blurred(x, 2), y1 = blurred(y, 2)
-    let w2 = blurred(w, 5), x2 = blurred(x, 5), y2 = blurred(y, 5)
+    let w1 = blurred(w, sigma), x1 = blurred(x, sigma), y1 = blurred(y, sigma)
+    let wide = max(5, 2 * sigma)
+    let w2 = blurred(w, wide), x2 = blurred(x, wide), y2 = blurred(y, wide)
     var dx = w, dy = w
     for k in 0..<(gw * gh) {
         let total = w1[k] + 0.05 * w2[k]
