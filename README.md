@@ -18,10 +18,10 @@ Two engines do the work, and `auto` picks between them:
 SwiftUI, iOS 17 and macOS 14, Swift Package Manager. The Swift sibling of
 [morphtext](https://github.com/drei-gg/morphtext) for Flutter.
 
-> Pre-release: not tagged yet. It lives in the Seven and Done apps first.
+> Early: pinned at 0.1.0 while it settles; not announced or listed yet.
 
 ```swift
-.package(url: "https://github.com/drei-gg/morpheum", branch: "main")
+.package(url: "https://github.com/drei-gg/morpheum", from: "0.1.0")
 ```
 
 ```swift

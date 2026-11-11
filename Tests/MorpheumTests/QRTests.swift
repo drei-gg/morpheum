@@ -47,7 +47,7 @@ import Testing
     }
 
     @Test func atRestItScans() throws {
-        let message = "https://sevenanddone.drei.gg/r/A1B2C3"
+        let message = "https://example.com/r/A1B2C3"
         let code = try #require(QRCode(message: message))
         // Its path drawn black on white, with room around it, read back.
         let side = 400, pad = 40
