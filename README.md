@@ -18,14 +18,17 @@ Two engines do the work, and `auto` picks between them:
 SwiftUI, iOS 17 and macOS 14, Swift Package Manager. The Swift sibling of
 [morphtext](https://github.com/drei-gg/morphtext) for Flutter.
 
-> Early: pinned at 0.1.0 while it settles; not announced or listed yet.
+Add it in Xcode (File > Add Package Dependencies) or in `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/drei-gg/morpheum", from: "0.1.0")
+.package(url: "https://github.com/drei-gg/morpheum", from: "0.1.1"),
+// and in your target:
+.product(name: "Morpheum", package: "morpheum"),
 ```
 
 ```swift
 import Morpheum
+import SwiftUI
 
 struct Title: View {
     @State private var on = false
@@ -194,7 +197,7 @@ axes), a colour and letter spacing.
 ```swift
 .system(size: 34, weight: .bold, design: .rounded, color: .orange, kerning: -1)
 .custom("Fraunces-SemiBold", size: 40)           // register the font first
-MorphStyle(font: someCTFont, color: .primary)    // any CTFont, UIFont or NSFont
+MorphStyle(font: someFont as CTFont, color: .primary)  // any CTFont; a UIFont or NSFont bridges
 ```
 
 ## Drawing it yourself
@@ -225,8 +228,9 @@ neighbour. A word and a single glyph morph as one shape.
 The outline engine is a port of [morphnext](https://github.com/KickNext/morphnext)'s
 geometry, checked against it: the tests plan the same letter pairs from the
 same font files as morphnext 0.7.1 and must draw the same shapes. The ink
-engine is this package's own. The stroke engine is a port of the Flutter
-package's experimental one. The tests run on macOS and the iOS simulator.
+engine is this package's own. The stroke engine is a port of an
+experimental one from the Flutter package, not yet published there. The
+tests run on macOS and the iOS simulator.
 
 ## Demo
 
