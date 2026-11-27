@@ -1,5 +1,10 @@
 .build/
+/build/
 .swiftpm/
 *.xcodeproj/
 xcuserdata/
+*.xcresult
 .DS_Store
+
+# Local-only probes and renders (env-gated, read fixtures from /tmp); not shipped.
+Tests/MorpheumTests/*Local.swift
